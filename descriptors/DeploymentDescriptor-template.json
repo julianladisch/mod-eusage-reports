@@ -1,0 +1,7 @@
+{
+  "srvcId": "${artifactId}-${version}",
+  "nodeId": "localhost",
+  "descriptor": {
+    "exec": "java -jar ../mod-eusage-reports/target/mod-eusage-reports-fat.jar -Dhttp.port=%p"
+  }
+}
