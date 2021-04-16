@@ -1,0 +1,101 @@
+openapi: 3.0.0
+info:
+  title: Tenant API
+  version: v2
+paths:
+  /_/tenant:
+    post:
+      description: Start tenant operation
+      operationId: postTenant
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/tenantAttributes"
+            example:
+              $ref: "examples/tenantAttributes.sample"
+        required: true
+      responses:
+        "204":
+          description: Tenant Job completed
+        "201":
+          description: Tenant job created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/tenantJob"
+        "400":
+          $ref: "#/components/responses/trait_400"
+        "422":
+          $ref: "#/components/responses/trait_validate_422"
+        "500":
+          $ref: "#/components/responses/trait_500"
+  /_/tenant/{id}:
+    get:
+      description: Get tenant job
+      operationId: getTenantJob
+      responses:
+        "200":
+          description: true or false indicator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/tenantJob"
+        "400":
+          $ref: "#/components/responses/trait_400"
+        "404":
+          description: job id not found
+          content:
+            text/plain:
+              schema:
+                type: string
+        "500":
+          $ref: "#/components/responses/trait_500"
+    delete:
+      description: delete tenant job
+      operationId: deleteTenantJob
+      responses:
+        "204":
+          description: Delete job ok
+        "400":
+          $ref: "#/components/responses/trait_400"
+        "404":
+          description: job id not found
+        "500":
+          $ref: "#/components/responses/trait_500"
+components:
+  responses:
+    trait_validate_422:
+      description: Validation errors
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/errors"
+          examples:
+            response:
+              value: examples/errors.sample
+    trait_400:
+      description: Bad request
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: Invalid JSON in request
+        application/json:
+          schema:
+            type: object
+            example: {"error":"Invalid JSON in request"}
+    trait_500:
+      description: Internal error
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: Internal server error, contact administrator
+  schemas:
+    tenantAttributes:
+      $ref: schemas/tenantAttributes.json
+    tenantJob:
+      $ref: schemas/tenantJob.json
+    errors:
+      $ref: schemas/errors.json
