@@ -27,7 +27,8 @@ and the additional module metadata.
 
 ### API documentation
 
-(to be added)
+ * [OpenAPI](src/main/resources/openapi/)
+ * [Schemas](src/main/resources/openapi/schemas/)
 
 ### Code analysis
 
