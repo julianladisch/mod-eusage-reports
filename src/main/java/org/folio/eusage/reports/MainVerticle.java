@@ -35,7 +35,7 @@ public class MainVerticle extends AbstractVerticle {
                 log.info("postTenant failureHandler");
                 ctx.response().setStatusCode(400);
                 ctx.response().putHeader("Content-Type", "text/plain");
-                ctx.response().end("Faulure");
+                ctx.response().end("Failure");
               });
           Router router = routerBuilder.createRouter();
           HttpServerOptions so = new HttpServerOptions().setHandle100ContinueAutomatically(true);
