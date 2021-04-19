@@ -1,0 +1,50 @@
+openapi: 3.0.0
+info:
+  title: EUsage Reports
+  version: v1
+paths:
+  /eusage/version:
+    get:
+      description: get version
+      operationId: getVersion
+      responses:
+        "200":
+          description: version response
+          content:
+            text/plain:
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/trait_400"
+        "404":
+          description: job id not found
+          content:
+            text/plain:
+              schema:
+                type: string
+        "500":
+          $ref: "#/components/responses/trait_500"
+components:
+  responses:
+    trait_400:
+      description: Bad request
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: Invalid JSON in request
+        application/json:
+          schema:
+            type: object
+            example: {"error":"Invalid JSON in request"}
+    trait_500:
+      description: Internal error
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: Internal server error, contact administrator
+  schemas:
+    errors:
+      $ref: schemas/errors.json
+

@@ -1,8 +1,11 @@
 package org.folio.eusage.reports;
 
 import io.vertx.core.AbstractVerticle;
+import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.http.HttpServerOptions;
+import io.vertx.core.json.Json;
+import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.openapi.RouterBuilder;
 import org.apache.logging.log4j.LogManager;
@@ -21,8 +24,26 @@ public class MainVerticle extends AbstractVerticle {
     int port = Integer.parseInt(Config.getSysConf("http.port", "port", "8081", config()));
     log.info("Port {}", port);
 
-    RouterBuilder.create(vertx, "src/main/resources/openapi/tenant2_0.yaml")
-        .<Void>compose(routerBuilder -> {
+    Router router = Router.router(vertx);
+
+    Future<Void> future = Future.succeededFuture();
+    future = future.compose(x -> createRouterTenantApi())
+        .onSuccess(x -> router.mountSubRouter("/", x)).mapEmpty();
+    future = future.compose(x -> createRoutereUsageReports(m.getVersion()))
+        .onSuccess(x -> router.mountSubRouter("/", x)).mapEmpty();
+
+    future.<Void>compose(x -> {
+      HttpServerOptions so = new HttpServerOptions().setHandle100ContinueAutomatically(true);
+      return vertx.createHttpServer(so)
+          .requestHandler(router)
+          .listen(port).mapEmpty();
+    })
+        .onComplete(promise);
+  }
+
+  Future<Router> createRouterTenantApi() {
+    return RouterBuilder.create(vertx, "src/main/resources/openapi/tenant-2.0.yaml")
+        .compose(routerBuilder -> {
           routerBuilder
               .operation("postTenant")
               .handler(ctx -> {
@@ -37,12 +58,43 @@ public class MainVerticle extends AbstractVerticle {
                 ctx.response().putHeader("Content-Type", "text/plain");
                 ctx.response().end("Failure");
               });
-          Router router = routerBuilder.createRouter();
-          HttpServerOptions so = new HttpServerOptions().setHandle100ContinueAutomatically(true);
-          return vertx.createHttpServer(so)
-              .requestHandler(router)
-              .listen(port).mapEmpty();
-        })
-        .onComplete(promise);
+          routerBuilder
+              .operation("getTenantJob")
+              .handler(ctx -> {
+                log.info("getTenantJob handler");
+                ctx.response().setStatusCode(200);
+                ctx.response().putHeader("Content-Type", "application/json");
+                ctx.response().end(new JsonObject().put("id", "1234").encode());
+              })
+              .failureHandler(ctx -> {
+                log.info("getTenantJob failureHandler");
+                ctx.response().setStatusCode(400);
+                ctx.response().putHeader("Content-Type", "text/plain");
+                ctx.response().end("Failure");
+              });
+          return Future.succeededFuture(routerBuilder.createRouter());
+        });
   }
+
+  Future<Router> createRoutereUsageReports(String version) {
+    return RouterBuilder.create(vertx, "src/main/resources/openapi/eusage-reports-1.0.yaml")
+        .compose(routerBuilder -> {
+          routerBuilder
+              .operation("getVersion")
+              .handler(ctx -> {
+                log.info("getVersion handler");
+                ctx.response().setStatusCode(200);
+                ctx.response().putHeader("Content-Type", "text/plain");
+                ctx.response().end(version == null ? "0.0" : version);
+              })
+              .failureHandler(ctx -> {
+                log.info("getVersion failureHandler");
+                ctx.response().setStatusCode(400);
+                ctx.response().putHeader("Content-Type", "text/plain");
+                ctx.response().end("Failure");
+              });
+          return Future.succeededFuture(routerBuilder.createRouter());
+        });
+  }
+
 }

@@ -4,14 +4,14 @@ import io.restassured.RestAssured;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
-import io.vertx.core.buffer.Buffer;
-import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.unit.TestContext;
 import io.vertx.ext.unit.junit.VertxUnitRunner;
 import io.vertx.ext.web.client.WebClient;
+import org.hamcrest.Matchers;
 import org.junit.After;
 import org.junit.Before;
+import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 
@@ -59,6 +59,14 @@ public class MainVerticleTest {
         }).onComplete(context.asyncAssertSuccess());
   }
 
+  @Ignore
+  @Test
+  public void testGetTenantOK(TestContext context) {
+    RestAssured.given()
+        .get("/_/tenant/121")
+        .then().statusCode(200);
+  }
+
   @Test
   public void testPostTenantBadJson(TestContext context) {
     RestAssured.given()
@@ -86,5 +94,11 @@ public class MainVerticleTest {
         .then().statusCode(400);
   }
 
-
+  @Test
+  public void testEUsageVersionOK(TestContext context) {
+    RestAssured.given()
+        .get("/eusage/version")
+        .then().statusCode(200)
+        .body(Matchers.is("0.0"));
+  }
 }
