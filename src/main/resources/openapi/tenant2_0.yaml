@@ -36,7 +36,7 @@ paths:
       operationId: getTenantJob
       responses:
         "200":
-          description: true or false indicator
+          description: job returned OK
           content:
             application/json:
               schema:
