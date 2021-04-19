@@ -43,6 +43,6 @@ public class MainVerticle extends AbstractVerticle {
               .requestHandler(router)
               .listen(port).mapEmpty();
         })
-        .onComplete(promise::handle);
+        .onComplete(promise);
   }
 }
