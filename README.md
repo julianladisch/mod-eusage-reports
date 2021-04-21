@@ -7,7 +7,7 @@ Version 2.0. See the file "[LICENSE](LICENSE)" for more information.
 
 ## Introduction
 
-[edge-eusage-reports](https://github.com/folio-org/mod-eusage-reports)
+[mod-eusage-reports](https://github.com/folio-org/mod-eusage-reports)
 is a backend module for parsing and storing relationships between COUNTER
 report lines and KB items and for storing access statistics (access numbers
 and cost) for specific periods.

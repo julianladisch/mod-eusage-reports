@@ -1,5 +1,5 @@
-{ 
-  "title":  "Tenant job attributes",
+{
+  "title": "Tenant job attributes",
   "description": "Configuration how to install, upgrade or delete a module for a tenant",
   "type": "object",
   "properties": {
