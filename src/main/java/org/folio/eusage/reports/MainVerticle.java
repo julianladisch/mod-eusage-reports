@@ -8,6 +8,8 @@ import io.vertx.core.json.Json;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.openapi.RouterBuilder;
+import io.vertx.ext.web.validation.RequestParameters;
+import io.vertx.ext.web.validation.ValidationHandler;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.folio.okapi.common.Config;
@@ -32,13 +34,13 @@ public class MainVerticle extends AbstractVerticle {
     future = future.compose(x -> createRoutereUsageReports(m.getVersion()))
         .onSuccess(x -> router.mountSubRouter("/", x)).mapEmpty();
 
-    future.<Void>compose(x -> {
+    future = future.compose(x -> {
       HttpServerOptions so = new HttpServerOptions().setHandle100ContinueAutomatically(true);
       return vertx.createHttpServer(so)
           .requestHandler(router)
           .listen(port).mapEmpty();
-    })
-        .onComplete(promise);
+    });
+    future.onComplete(promise);
   }
 
   Future<Router> createRouterTenantApi() {
@@ -49,8 +51,10 @@ public class MainVerticle extends AbstractVerticle {
               .handler(ctx -> {
                 log.info("postTenant handler");
                 ctx.response().setStatusCode(201);
-                ctx.response().putHeader("Content-Type", "text/plain");
-                ctx.response().end("Created");
+                ctx.response().putHeader("Content-Type", "application/json");
+                JsonObject tenantJob = new JsonObject();
+                tenantJob.put("id", "1234");
+                ctx.response().end(tenantJob.encode());
               })
               .failureHandler(ctx -> {
                 log.info("postTenant failureHandler");
@@ -62,9 +66,11 @@ public class MainVerticle extends AbstractVerticle {
               .operation("getTenantJob")
               .handler(ctx -> {
                 log.info("getTenantJob handler");
+                RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+                String id = params.pathParameter("id").getString();
                 ctx.response().setStatusCode(200);
                 ctx.response().putHeader("Content-Type", "application/json");
-                ctx.response().end(new JsonObject().put("id", "1234").encode());
+                ctx.response().end(new JsonObject().put("id", id).encode());
               })
               .failureHandler(ctx -> {
                 log.info("getTenantJob failureHandler");
