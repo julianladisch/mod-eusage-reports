@@ -65,6 +65,13 @@
         <artifactId>rest-assured</artifactId>
         <version>3.0.7</version>
       </dependency>
+      <dependency>
+        <groupId>org.testcontainers</groupId>
+        <artifactId>testcontainers-bom</artifactId>
+        <version>1.15.1</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
     </dependencies>
   </dependencyManagement>
 
@@ -88,6 +95,10 @@
     <dependency>
       <groupId>io.vertx</groupId>
       <artifactId>vertx-web-api-contract</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.vertx</groupId>
+      <artifactId>vertx-pg-client</artifactId>
     </dependency>
     <dependency>
       <groupId>org.apache.logging.log4j</groupId>
@@ -147,6 +158,16 @@
     <dependency>
       <groupId>io.rest-assured</groupId>
       <artifactId>rest-assured</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>postgresql</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
@@ -291,7 +312,7 @@
             </goals>
             <configuration>
               <inputSpec>${tenant.yaml.file}</inputSpec>
-              <output>${project.build.directory}/generated-sources</output>
+              <output>${project.build.directory}/generated-sources/openapi-generator</output>
               <generatorName>java-vertx-web</generatorName>
               <modelPackage>${project.groupId}.tenant.main</modelPackage>
               <apiPackage>${project.groupId}.tenant.rest.resource</apiPackage>
