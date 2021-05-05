@@ -52,6 +52,7 @@ public class MainVerticleTest {
   @Test
   public void testPostTenantOK(TestContext context) {
     RestAssured.given()
+        .header("X-Okapi-Tenant", "testlib")
         .header("Content-Type", "application/json")
         .body("{\"module_to\" : \"mod-eusage-reports-1.0.0\"}")
         .post("/_/tenant")
