@@ -62,7 +62,8 @@ public class MainVerticle extends AbstractVerticle {
           routerBuilder
               .operation("postTenant")
               .handler(ctx -> {
-                log.info("postTenant handler");
+                RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+                log.info("postTenant handler {}", params.toJson().encode());
                 ctx.response().setStatusCode(201);
                 ctx.response().putHeader("Content-Type", "application/json");
                 JsonObject tenantJob = new JsonObject();

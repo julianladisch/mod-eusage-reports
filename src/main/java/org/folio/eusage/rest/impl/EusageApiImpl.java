@@ -7,8 +7,9 @@ import org.folio.eusage.rest.resource.DefaultApi;
 // Implement this class
 
 public class EusageApiImpl implements DefaultApi {
-  public Future<ApiResponse<String>> getVersion() {
+
+  @Override
+  public Future<ApiResponse<String>> getVersion(String okapiTenant, String okapiToken) {
     return Future.succeededFuture(new ApiResponse<>(200, "0.0"));
   }
-
 }

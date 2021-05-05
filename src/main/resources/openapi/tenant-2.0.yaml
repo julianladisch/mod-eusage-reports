@@ -4,6 +4,9 @@ info:
   version: v2
 paths:
   /_/tenant:
+    parameters:
+      - $ref: headers/okapi-tenant.yaml
+      - $ref: headers/okapi-token.yaml
     post:
       description: Start tenant operation
       operationId: postTenant
@@ -32,6 +35,8 @@ paths:
           $ref: "#/components/responses/trait_500"
   /_/tenant/{id}:
     parameters:
+      - $ref: headers/okapi-tenant.yaml
+      - $ref: headers/okapi-token.yaml
       - in: path
         name: id
         required: true
