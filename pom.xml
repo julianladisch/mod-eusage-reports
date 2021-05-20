@@ -45,6 +45,13 @@
         <version>4.0.3</version>
         <type>pom</type>
         <scope>import</scope>
+       </dependency>
+       <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-bom</artifactId>
+        <version>4.1.60.Final</version>
+        <type>pom</type>
+        <scope>import</scope>
       </dependency>
       <dependency>
         <groupId>org.apache.logging.log4j</groupId>
@@ -56,7 +63,12 @@
       <dependency>
         <groupId>org.folio.okapi</groupId>
         <artifactId>okapi-common</artifactId>
-        <version>4.7.2</version>
+        <version>4.8.0</version>
+      </dependency>
+      <dependency>
+        <groupId>org.folio.okapi</groupId>
+        <artifactId>okapi-testing</artifactId>
+        <version>4.8.0</version>
       </dependency>
       <dependency>
         <groupId>io.rest-assured</groupId>
@@ -109,6 +121,20 @@
     <dependency>
       <groupId>org.folio.okapi</groupId>
       <artifactId>okapi-common</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.folio.okapi</groupId>
+      <artifactId>okapi-testing</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-transport-native-epoll</artifactId>
+      <classifier>linux-x86_64</classifier>
+    </dependency>
+    <dependency>
+      <groupId>io.netty</groupId>
+      <artifactId>netty-tcnative-boringssl-static</artifactId>
+      <scope>runtime</scope>
     </dependency>
     <dependency>
       <groupId>org.openapitools</groupId>
@@ -178,7 +204,7 @@
                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
                   <manifestEntries>
                     <Main-Class>io.vertx.core.Launcher</Main-Class>
-                    <Main-Verticle>org.folio.tenant.rest.impl.HttpServerVerticle</Main-Verticle>
+                    <Main-Verticle>org.folio.eusage.reports.MainVerticle</Main-Verticle>
                     <Multi-Release>true</Multi-Release>
                   </manifestEntries>
                 </transformer>
@@ -285,72 +311,6 @@
             <goals>
               <goal>check</goal>
             </goals>
-          </execution>
-        </executions>
-      </plugin>
-
-      <plugin>
-        <groupId>org.openapitools</groupId>
-        <artifactId>openapi-generator-maven-plugin</artifactId>
-        <version>${openapi-generator.version}</version>
-        <executions>
-          <execution>
-            <id>tenantApi</id>
-            <goals>
-              <goal>generate</goal>
-            </goals>
-            <configuration>
-              <inputSpec>${tenant.yaml.file}</inputSpec>
-              <output>${project.build.directory}/generated-sources/openapi-generator</output>
-              <generatorName>java-vertx-web</generatorName>
-              <modelPackage>${project.groupId}.tenant.main</modelPackage>
-              <apiPackage>${project.groupId}.tenant.rest.resource</apiPackage>
-              <generateApis>true</generateApis>
-              <generateApiTests>true</generateApiTests>
-              <generateApiDocumentation>true</generateApiDocumentation>
-              <generateModels>true</generateModels>
-              <modelsToGenerate>error,errors,metadata,parameter,parameters,tenantAttributes,tenantJob</modelsToGenerate>
-              <generateModelTests>false</generateModelTests>
-              <generateModelDocumentation>true</generateModelDocumentation>
-              <configOptions>
-                <java8>true</java8>
-                <dateLibrary>java8</dateLibrary>
-                <interfaceOnly>true</interfaceOnly>
-              </configOptions>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-
-      <plugin>
-        <groupId>org.openapitools</groupId>
-        <artifactId>openapi-generator-maven-plugin</artifactId>
-        <version>${openapi-generator.version}</version>
-        <executions>
-          <execution>
-            <id>eUsage</id>
-            <goals>
-              <goal>generate</goal>
-            </goals>
-            <configuration>
-              <inputSpec>src/main/resources/openapi/eusage-reports-1.0.yaml</inputSpec>
-              <output>${project.build.directory}/generated-sources</output>
-              <generatorName>java-vertx-web</generatorName>
-              <modelPackage>${project.groupId}.eusage.main</modelPackage>
-              <apiPackage>${project.groupId}.eusage.rest.resource</apiPackage>
-              <generateApis>true</generateApis>
-              <generateApiTests>true</generateApiTests>
-              <generateApiDocumentation>true</generateApiDocumentation>
-              <generateModels>true</generateModels>
-              <modelsToGenerate>error,errors,metadata,parameter,parameters,tenantAttributes,tenantJob</modelsToGenerate>
-              <generateModelTests>false</generateModelTests>
-              <generateModelDocumentation>true</generateModelDocumentation>
-              <configOptions>
-                <java8>true</java8>
-                <dateLibrary>java8</dateLibrary>
-                <interfaceOnly>true</interfaceOnly>
-              </configOptions>
-            </configuration>
           </execution>
         </executions>
       </plugin>
