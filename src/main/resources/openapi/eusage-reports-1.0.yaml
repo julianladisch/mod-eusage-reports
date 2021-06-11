@@ -3,28 +3,128 @@ info:
   title: EUsage Reports
   version: v1
 paths:
-  /eusage/version:
+  /eusage-reports/report-titles:
     parameters:
       - $ref: headers/okapi-tenant.yaml
       - $ref: headers/okapi-token.yaml
+      - $ref: headers/okapi-url.yaml
     get:
-      description: get version
-      operationId: getVersion
+      description: Get titles with links to KB
+      operationId: getReportTitles
       responses:
         "200":
-          description: version response
+          description: OK
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: schemas/reportTitles.json
+        "400":
+          $ref: "#/components/responses/trait_400"
+        "500":
+          $ref: "#/components/responses/trait_500"
+    post:
+      description: POST titles with links to KB
+      operationId: postReportTitles
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: schemas/reportTitles.json
+      responses:
+        "204":
+          description: OK
+        "400":
+          $ref: "#/components/responses/trait_400"
+        "500":
+          $ref: "#/components/responses/trait_500"
+  /eusage-reports/report-titles/from-counter:
+    parameters:
+      - $ref: headers/okapi-tenant.yaml
+      - $ref: headers/okapi-token.yaml
+      - $ref: headers/okapi-url.yaml
+    post:
+      description: Parse counter reports
+      operationId: postFromCounter
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: schemas/fromCounterRequest.json
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: schemas/reportTitles.json
         "400":
           $ref: "#/components/responses/trait_400"
         "404":
-          description: job id not found
+          $ref: "#/components/responses/trait_404"
+        "500":
+          $ref: "#/components/responses/trait_500"
+  /eusage-reports/title-data:
+    parameters:
+      - $ref: headers/okapi-tenant.yaml
+      - $ref: headers/okapi-token.yaml
+      - $ref: headers/okapi-url.yaml
+    get:
+      description: Get title data
+      operationId: getTitleData
+      responses:
+        "200":
+          description: OK
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
+                $ref: schemas/titleDataEntries.json
+        "400":
+          $ref: "#/components/responses/trait_400"
+        "500":
+          $ref: "#/components/responses/trait_500"
+  /eusage-reports/report-data:
+    parameters:
+      - $ref: headers/okapi-tenant.yaml
+      - $ref: headers/okapi-token.yaml
+      - $ref: headers/okapi-url.yaml
+    get:
+      description: Return report data
+      operationId: getReportData
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: schemas/reportDataEntries.json
+        "400":
+          $ref: "#/components/responses/trait_400"
+        "500":
+          $ref: "#/components/responses/trait_500"
+  /eusage-reports/report-data/from-agreement:
+    parameters:
+      - $ref: headers/okapi-tenant.yaml
+      - $ref: headers/okapi-token.yaml
+      - $ref: headers/okapi-url.yaml
+    post:
+      description: Parse agreements and populate report data
+      operationId: postFromAgreement
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: schemas/fromAgreementRequest.json
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: schemas/fromAgreementResponse.json
+        "400":
+          $ref: "#/components/responses/trait_400"
+        "404":
+          $ref: "#/components/responses/trait_404"
         "500":
           $ref: "#/components/responses/trait_500"
 components:
@@ -40,6 +140,17 @@ components:
           schema:
             type: object
             example: {"error":"Invalid JSON in request"}
+    trait_404:
+      description: Not Found
+      content:
+        text/plain:
+          schema:
+            type: string
+            example: Identifier 596d9f60-cda3-44d2-a4a1-2f48b7d4d23c not found
+        application/json:
+          schema:
+            type: object
+            example: {"error":"Identifier 596d9f60-cda3-44d2-a4a1-2f48b7d4d23c not found"}
     trait_500:
       description: Internal error
       content:
@@ -50,4 +161,3 @@ components:
   schemas:
     errors:
       $ref: schemas/errors.json
-

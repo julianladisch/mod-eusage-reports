@@ -1,0 +1,18 @@
+{
+  "description": "return title data entries",
+  "type": "object",
+  "properties": {
+    "data": {
+      "description": "List of title data entries",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "$ref": "titleDataEntry.json"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "data"
+  ]
+}

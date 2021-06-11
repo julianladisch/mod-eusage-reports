@@ -29,13 +29,13 @@ public class TenantPgPoolImpl implements TenantPgPool {
   private static final Logger log = LogManager.getLogger(TenantPgPoolImpl.class);
   static Map<PgConnectOptions, PgPool> pgPoolMap = new HashMap<>();
 
-  static String host = System.getProperty("DB_HOST");
-  static String port = System.getProperty("DB_PORT");
-  static String user = System.getProperty("DB_USERNAME");
-  static String password = System.getProperty("DB_PASSWORD");
-  static String database = System.getProperty("DB_DATABASE");
-  static String maxPoolSize = System.getProperty("DB_MAXPOOLSIZE");
-  static String serverPem = System.getProperty("DB_SERVER_PEM");
+  static String host = System.getenv("DB_HOST");
+  static String port = System.getenv("DB_PORT");
+  static String user = System.getenv("DB_USERNAME");
+  static String password = System.getenv("DB_PASSWORD");
+  static String database = System.getenv("DB_DATABASE");
+  static String maxPoolSize = System.getenv("DB_MAXPOOLSIZE");
+  static String serverPem = System.getenv("DB_SERVER_PEM");
   static String module;
   static PgConnectOptions pgConnectOptions = new PgConnectOptions();
 
@@ -149,12 +149,16 @@ public class TenantPgPoolImpl implements TenantPgPool {
 
   @Override
   public Query<RowSet<Row>> query(String s) {
-    return pgPool.query(subst(s));
+    String e = subst(s);
+    log.info("query {}", e);
+    return pgPool.query(e);
   }
 
   @Override
   public PreparedQuery<RowSet<Row>> preparedQuery(String s) {
-    return pgPool.preparedQuery(subst(s));
+    String e = subst(s);
+    log.info("preparedQuery {}", e);
+    return pgPool.preparedQuery(e);
   }
 
   @Override
@@ -181,7 +185,6 @@ public class TenantPgPoolImpl implements TenantPgPool {
     Future<Void> future = Future.succeededFuture();
     for (String cmd : queries) {
       future = future.compose(res -> query(cmd).execute()
-          .onSuccess(x -> log.info("{}", cmd))
           .onFailure(x -> log.warn("{} FAIL: {}", cmd, x.getMessage()))
           .mapEmpty());
     }

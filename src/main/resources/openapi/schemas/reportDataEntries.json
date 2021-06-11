@@ -1,0 +1,18 @@
+{
+  "description": "report data entries",
+  "type": "object",
+  "properties": {
+    "data": {
+      "description": "List of data entries",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "$ref": "reportDataEntry.json"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "data"
+  ]
+}
