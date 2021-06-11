@@ -128,6 +128,7 @@ public class Tenant2ApiTest {
         .then().statusCode(400)
         .header("Content-Type", is("text/plain"))
         .body(containsString("DB_PORT="));
+    TenantPgPool.setDefaultConnectOptions(pgConnectOptions);
   }
 
   @Test
