@@ -187,7 +187,15 @@ public class Tenant2Api implements RouterCreator {
                   ctx.response().putHeader("Content-Type", "application/json");
                   ctx.response().end(tenantJob.encode());
                 })
-                .onFailure(e -> failHandler500(ctx, e));
+                .onFailure(e -> {
+                  if (e.getClass().getName().contains("ConnectException")) {
+                    failHandler400(ctx, e.getMessage()
+                        + " DB_HOST=" + System.getenv("DB_HOST")
+                        + " DB_PORT=" + System.getenv("DB_PORT"));
+                    return;
+                  }
+                  failHandler500(ctx, e);
+                });
           } catch (Exception e) {
             failHandler400(ctx, e.getMessage());
           }

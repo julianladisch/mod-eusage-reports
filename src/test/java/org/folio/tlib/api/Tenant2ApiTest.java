@@ -110,6 +110,27 @@ public class Tenant2ApiTest {
   }
 
   @Test
+  public void testPostTenantBadPort(TestContext context) {
+    String tenant = "testlib";
+    PgConnectOptions bad = new PgConnectOptions();
+    PgConnectOptions pgConnectOptions = TenantPgPool.getDefaultConnectOptions();
+    bad.setHost(pgConnectOptions.getHost());
+    bad.setPort(pgConnectOptions.getPort() + 1);
+    bad.setUser(pgConnectOptions.getUser());
+    bad.setPassword(pgConnectOptions.getPassword());
+    bad.setDatabase(pgConnectOptions.getDatabase());
+    TenantPgPool.setDefaultConnectOptions(bad);
+    RestAssured.given()
+        .header("X-Okapi-Tenant", tenant)
+        .header("Content-Type", "application/json")
+        .body("{\"module_to\" : \"mod-eusage-reports-1.0.0\"}")
+        .post("/_/tenant")
+        .then().statusCode(400)
+        .header("Content-Type", is("text/plain"))
+        .body(containsString("DB_PORT="));
+  }
+
+  @Test
   public void testPostTenantBadDatabase(TestContext context) {
     String tenant = "testlib";
     PgConnectOptions bad = new PgConnectOptions();
