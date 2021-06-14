@@ -299,50 +299,70 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
   static int getTotalCount(JsonObject reportItem) {
     int count = 0;
-    JsonArray itemPerformances = reportItem.getJsonArray("itemPerformance");
+    JsonArray itemPerformances = reportItem.getJsonArray(altKey(reportItem,
+        "itemPerformance", "Performance"));
     for (int i = 0; i < itemPerformances.size(); i++) {
       JsonObject itemPerformance = itemPerformances.getJsonObject(i);
-      JsonArray instances = itemPerformance.getJsonArray("instance");
-      for (int j = 0; j < instances.size(); j++) {
-        JsonObject instance = instances.getJsonObject(j);
-        count += instance.getInteger("count");
+      if (itemPerformance != null) {
+        JsonArray instances = itemPerformance.getJsonArray(altKey(itemPerformance,
+            "instance", "Instance"));
+        for (int j = 0; j < instances.size(); j++) {
+          JsonObject instance = instances.getJsonObject(j);
+          if (instance != null) {
+            count += instance.getInteger(altKey(instance, "count", "Count"));
+          }
+        }
       }
     }
     return count;
   }
 
   static String getMatch(JsonObject reportItem) {
-    JsonArray itemIdentifiers = reportItem.getJsonArray("itemIdentifier");
+    JsonArray itemIdentifiers = reportItem.getJsonArray(altKey(reportItem,
+        "itemIdentifier", "Item_ID"));
     for (int k = 0; k < itemIdentifiers.size(); k++) {
       JsonObject itemIdentifier = itemIdentifiers.getJsonObject(k);
-      String type = itemIdentifier.getString("type");
-      String value = itemIdentifier.getString("value");
-      if ("ONLINE_ISSN".equals(type)) {
-        return value;
+      if (itemIdentifier != null) {
+        String type = itemIdentifier.getString(altKey(itemIdentifier, "type", "Type"));
+        String value = itemIdentifier.getString(altKey(itemIdentifier, "value", "Value"));
+        if ("ONLINE_ISSN".equals(type) || "Online_ISSN".equals(type)) {
+          return value;
+        }
       }
     }
     return null;
+  }
+
+  static String altKey(JsonObject jsonObject, String... keys) {
+    for (String key : keys) {
+      if (jsonObject.containsKey(key)) {
+        return key;
+      }
+    }
+    return keys[0];
   }
 
   Future<Void> handleReport(TenantPgPool pool, RoutingContext ctx, JsonObject jsonObject) {
     final UUID counterReportId = UUID.fromString(jsonObject.getString("id"));
     final String usageYearMonth = jsonObject.getString("yearMonth");
     final JsonObject reportItem = jsonObject.getJsonObject("reportItem");
-
+    final String match = getMatch(reportItem);
+    final String counterReportTitle = reportItem.getString(altKey(reportItem,
+        "itemName", "Title"));
+    log.debug("handleReport title={} match={}", counterReportTitle, match);
+    if (match == null) {
+      return Future.succeededFuture();
+    }
     return pool.getConnection().compose(con -> con.begin().compose(tx -> {
       Future<Void> future = Future.succeededFuture();
-      final String counterReportTitle = reportItem.getString("itemName");
-      final String match = getMatch(reportItem);
       final int totalAccessCount = getTotalCount(reportItem);
       future = future.compose(x ->
           upsertTeEntry(pool, con, ctx, counterReportTitle, match)
               .compose(reportTitleId -> insertTdEntry(pool, con, reportTitleId, counterReportId,
                   usageYearMonth, totalAccessCount))
       );
-      return future
-          .compose(x -> tx.commit())
-          .eventually(x -> con.close());
-    }));
+      return future.compose(x -> tx.commit());
+    }).eventually(x -> con.close()));
   }
 
   static HttpRequest<Buffer> createRequest(WebClient webClient, HttpMethod method,
@@ -399,7 +419,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         if ("yearMonth".equals(f) && path.size() <= 2) {
           reportObj.put("yearMonth", event.stringValue());
         }
-        if ("reportItems".equals(f)) {
+        if ("reportItems".equals(f) || "Report_Items".equals(f)) {
           objectMode.set(true);
           parser.objectValueMode();
         }
