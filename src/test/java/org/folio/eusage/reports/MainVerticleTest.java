@@ -40,6 +40,7 @@ public class MainVerticleTest {
   static final UUID goodAgreementId = UUID.randomUUID();
   static final UUID badJsonAgreementId = UUID.randomUUID();
   static final UUID badStatusAgreementId = UUID.randomUUID();
+  static final UUID usageProviderId = UUID.randomUUID();
 
   @ClassRule
   public static PostgreSQLContainer<?> postgresSQLContainer = TenantPgPoolContainer.create();
@@ -47,6 +48,7 @@ public class MainVerticleTest {
   static JsonObject getCounterReportMock(UUID id, int cnt) {
     JsonObject counterReport = new JsonObject();
     counterReport.put("id", id);
+    counterReport.put("providerId", usageProviderId);
     counterReport.put("yearMonth", "2021-01");
     JsonObject report = new JsonObject();
     counterReport.put("report", report);
@@ -577,6 +579,8 @@ public class MainVerticleTest {
         .extract();
     resObject = new JsonObject(response.body().asString());
     context.assertEquals(15, resObject.getJsonArray("data").size());
+    resObject = resObject.getJsonArray("data").getJsonObject(0);
+    context.assertEquals(usageProviderId.toString(), resObject.getString("providerId"));
 
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
@@ -710,7 +714,6 @@ public class MainVerticleTest {
         .extract();
     resObject = new JsonObject(response.body().asString());
     context.assertEquals(1, resObject.getJsonArray("data").size());
-
 
     // disable
     tenantOp(context, tenant,
