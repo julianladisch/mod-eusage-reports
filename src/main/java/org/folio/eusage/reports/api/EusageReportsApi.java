@@ -22,6 +22,7 @@ import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowStream;
 import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.Transaction;
 import io.vertx.sqlclient.Tuple;
 import java.util.LinkedList;
 import java.util.List;
@@ -65,6 +66,21 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
   static String stringOrNull(RequestParameter requestParameter) {
     return requestParameter == null ? null : requestParameter.getString();
+  }
+
+  void endStream(RowStream<Row> stream, RoutingContext ctx,
+                 SqlConnection sqlConnection, Transaction tx) {
+    stream.endHandler(end -> {
+      ctx.response().write("] }");
+      ctx.response().end();
+      tx.commit().compose(x -> sqlConnection.close());
+    });
+    stream.exceptionHandler(e -> {
+      log.error("stream error {}", e.getMessage(), e);
+      ctx.response().write("] }");
+      ctx.response().end();
+      tx.commit().compose(x -> sqlConnection.close());
+    });
   }
 
   Future<Void> getReportTitles(Vertx vertx, RoutingContext ctx) {
@@ -114,15 +130,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                       }
                       ctx.response().write(response.encode());
                     });
-                    stream.endHandler(end -> {
-                      ctx.response().write("] }");
-                      ctx.response().end();
-                      tx.commit();
-                    });
+                    endStream(stream, ctx, sqlConnection, tx);
                     return Future.succeededFuture();
                   })
-              )
-              .eventually(x -> sqlConnection.close());
+              ).onFailure(x -> sqlConnection.close());
         });
   }
 
@@ -194,15 +205,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                     .put("openAccess", row.getBoolean(8));
                 ctx.response().write(obj.encode());
               });
-              stream.endHandler(end -> {
-                ctx.response().write("] }");
-                ctx.response().end();
-                tx.commit();
-              });
+              endStream(stream, ctx, sqlConnection, tx);
               return Future.succeededFuture();
             })
         )
-        .eventually(x -> sqlConnection.close()));
+        .onFailure(x -> sqlConnection.close()));
   }
 
   Future<Void> postFromCounter(Vertx vertx, RoutingContext ctx) {
@@ -495,15 +502,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                             .put("envoicedCost", row.getNumeric(6));
                         ctx.response().write(obj.encode());
                       });
-                      stream.endHandler(end -> {
-                        ctx.response().write("] }");
-                        ctx.response().end();
-                        tx.commit();
-                      });
+                      endStream(stream, ctx, sqlConnection, tx);
                       return Future.succeededFuture();
                     })
                 )
-                .eventually(x -> sqlConnection.close())
+                .onFailure(x -> sqlConnection.close())
         );
   }
 
