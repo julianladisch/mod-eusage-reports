@@ -72,6 +72,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
     String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
     String counterReportId = stringOrNull(params.queryParameter("counterReportId"));
+    String providerId = stringOrNull(params.queryParameter("providerId"));
 
     TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
     return pool.getConnection()
@@ -82,6 +83,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             qry = qry + " INNER JOIN " + titleDataTable(pool)
                 + " ON reportTitleId = " + titleEntriesTable(pool) + ".id"
                 + " WHERE counterReportId = '" + UUID.fromString(counterReportId) + "'";
+          } else if (providerId != null) {
+            qry = qry + " INNER JOIN " + titleDataTable(pool)
+                + " ON reportTitleId = " + titleEntriesTable(pool) + ".id"
+                + " WHERE providerId = '" + UUID.fromString(providerId) + "'";
           }
           return sqlConnection.prepare(qry)
               .<Void>compose(pq ->

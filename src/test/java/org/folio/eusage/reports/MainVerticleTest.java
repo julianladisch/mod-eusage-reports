@@ -614,6 +614,28 @@ public class MainVerticleTest {
         .then().statusCode(400)
         .body(is("Invalid UUID string: x"));
 
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-titles?providerId=" + usageProviderId.toString())
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"))
+        .extract();
+    resObject = new JsonObject(response.body().asString());
+    titlesAr = resObject.getJsonArray("titles");
+    context.assertEquals(8, titlesAr.size());
+
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-titles?providerId=" + UUID.randomUUID().toString())
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"))
+        .extract();
+    resObject = new JsonObject(response.body().asString());
+    titlesAr = resObject.getJsonArray("titles");
+    context.assertEquals(0, titlesAr.size());
+
     RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
