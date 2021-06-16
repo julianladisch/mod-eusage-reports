@@ -56,6 +56,8 @@ public class MainVerticleTest {
         .put("id", "This is take vendor")
         .put("contact", new JsonArray())
     );
+    report.put("providerId", "not_inspected");
+    report.put("yearMonth", "not_inspected");
     report.put("name", "JR1");
     report.put("title", "Journal Report " + cnt);
     report.put("customer", new JsonArray()

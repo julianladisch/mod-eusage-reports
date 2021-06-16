@@ -23,7 +23,6 @@ import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowStream;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
-import java.util.Deque;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.UUID;
@@ -406,18 +405,18 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     List<Future<Void>> futures = new LinkedList<>();
 
     final String uri = "/counter-reports" + (id != null ? "/" + id : "");
+    AtomicInteger pathSize = new AtomicInteger(id != null ? 1 : 0);
     JsonObject reportObj = new JsonObject();
-    Deque<String> path = new LinkedList<>();
     parser.handler(event -> {
       log.debug("event type={}", event.type().name());
       JsonEventType type = event.type();
       if (JsonEventType.END_OBJECT.equals(type)) {
-        path.removeLast();
+        pathSize.decrementAndGet();
         objectMode.set(false);
         parser.objectEventMode();
       }
       if (JsonEventType.START_OBJECT.equals(type)) {
-        path.addLast(null);
+        pathSize.incrementAndGet();
       }
       if (objectMode.get() && event.isObject()) {
         reportObj.put("reportItem", event.objectValue());
@@ -426,15 +425,17 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       } else {
         String f = event.fieldName();
         log.debug("Field = {}", f);
-        if ("id".equals(f) && path.size() <= 2) {
-          reportObj.put("id", event.stringValue());
-          futures.add(clearTdEntry(pool, UUID.fromString(reportObj.getString("id"))));
-        }
-        if ("providerId".equals(f) && path.size() <= 2) {
-          reportObj.put(f, event.stringValue());
-        }
-        if ("yearMonth".equals(f) && path.size() <= 2) {
-          reportObj.put(f, event.stringValue());
+        if (pathSize.get() == 2) { // if inside each top-level of each report
+          if ("id".equals(f)) {
+            reportObj.put("id", event.stringValue());
+            futures.add(clearTdEntry(pool, UUID.fromString(reportObj.getString("id"))));
+          }
+          if ("providerId".equals(f)) {
+            reportObj.put(f, event.stringValue());
+          }
+          if ("yearMonth".equals(f)) {
+            reportObj.put(f, event.stringValue());
+          }
         }
         if ("reportItems".equals(f) || "Report_Items".equals(f)) {
           objectMode.set(true);
