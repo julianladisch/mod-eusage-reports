@@ -68,18 +68,18 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     return requestParameter == null ? null : requestParameter.getString();
   }
 
-  void endStream(RowStream<Row> stream, RoutingContext ctx,
-                 SqlConnection sqlConnection, Transaction tx) {
-    stream.endHandler(end -> {
-      ctx.response().write("] }");
-      ctx.response().end();
-      tx.commit().compose(x -> sqlConnection.close());
-    });
+  private static void endHandler(RoutingContext ctx, SqlConnection sqlConnection, Transaction tx) {
+    ctx.response().write("] }");
+    ctx.response().end();
+    tx.commit().compose(x -> sqlConnection.close());
+  }
+
+  private void endStream(RowStream<Row> stream, RoutingContext ctx,
+                         SqlConnection sqlConnection, Transaction tx) {
+    stream.endHandler(end -> endHandler(ctx, sqlConnection, tx));
     stream.exceptionHandler(e -> {
       log.error("stream error {}", e.getMessage(), e);
-      ctx.response().write("] }");
-      ctx.response().end();
-      tx.commit().compose(x -> sqlConnection.close());
+      endHandler(ctx, sqlConnection, tx);
     });
   }
 
