@@ -14,6 +14,12 @@ paths:
         description: limit titles associated with counter report (UUID)
         schema:
           type: string
+      - in: query
+        name: providerId
+        required: false
+        description: limit titles associated with usage provider (UUID)
+        schema:
+          type: string
     get:
       description: Get titles with links to KB
       operationId: getReportTitles

@@ -40,6 +40,7 @@ public class MainVerticleTest {
   static final UUID goodAgreementId = UUID.randomUUID();
   static final UUID badJsonAgreementId = UUID.randomUUID();
   static final UUID badStatusAgreementId = UUID.randomUUID();
+  static final UUID usageProviderId = UUID.randomUUID();
 
   @ClassRule
   public static PostgreSQLContainer<?> postgresSQLContainer = TenantPgPoolContainer.create();
@@ -47,6 +48,7 @@ public class MainVerticleTest {
   static JsonObject getCounterReportMock(UUID id, int cnt) {
     JsonObject counterReport = new JsonObject();
     counterReport.put("id", id);
+    counterReport.put("providerId", usageProviderId);
     counterReport.put("yearMonth", "2021-01");
     JsonObject report = new JsonObject();
     counterReport.put("report", report);
@@ -54,6 +56,8 @@ public class MainVerticleTest {
         .put("id", "This is take vendor")
         .put("contact", new JsonArray())
     );
+    report.put("providerId", "not_inspected");
+    report.put("yearMonth", "not_inspected");
     report.put("name", "JR1");
     report.put("title", "Journal Report " + cnt);
     report.put("customer", new JsonArray()
@@ -577,6 +581,8 @@ public class MainVerticleTest {
         .extract();
     resObject = new JsonObject(response.body().asString());
     context.assertEquals(15, resObject.getJsonArray("data").size());
+    resObject = resObject.getJsonArray("data").getJsonObject(0);
+    context.assertEquals(usageProviderId.toString(), resObject.getString("providerId"));
 
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
@@ -609,6 +615,28 @@ public class MainVerticleTest {
         .get("/eusage-reports/report-titles?counterReportId=x")
         .then().statusCode(400)
         .body(is("Invalid UUID string: x"));
+
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-titles?providerId=" + usageProviderId.toString())
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"))
+        .extract();
+    resObject = new JsonObject(response.body().asString());
+    titlesAr = resObject.getJsonArray("titles");
+    context.assertEquals(8, titlesAr.size());
+
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-titles?providerId=" + UUID.randomUUID().toString())
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"))
+        .extract();
+    resObject = new JsonObject(response.body().asString());
+    titlesAr = resObject.getJsonArray("titles");
+    context.assertEquals(0, titlesAr.size());
 
     RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
@@ -710,7 +738,6 @@ public class MainVerticleTest {
         .extract();
     resObject = new JsonObject(response.body().asString());
     context.assertEquals(1, resObject.getJsonArray("data").size());
-
 
     // disable
     tenantOp(context, tenant,

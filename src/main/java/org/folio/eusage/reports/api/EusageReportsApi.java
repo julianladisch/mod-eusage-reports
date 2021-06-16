@@ -23,7 +23,6 @@ import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowStream;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
-import java.util.Deque;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.UUID;
@@ -72,6 +71,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
     String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
     String counterReportId = stringOrNull(params.queryParameter("counterReportId"));
+    String providerId = stringOrNull(params.queryParameter("providerId"));
 
     TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
     return pool.getConnection()
@@ -82,6 +82,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             qry = qry + " INNER JOIN " + titleDataTable(pool)
                 + " ON reportTitleId = " + titleEntriesTable(pool) + ".id"
                 + " WHERE counterReportId = '" + UUID.fromString(counterReportId) + "'";
+          } else if (providerId != null) {
+            qry = qry + " INNER JOIN " + titleDataTable(pool)
+                + " ON reportTitleId = " + titleEntriesTable(pool) + ".id"
+                + " WHERE providerId = '" + UUID.fromString(providerId) + "'";
           }
           return sqlConnection.prepare(qry)
               .<Void>compose(pq ->
@@ -182,11 +186,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                     .put("id", row.getUUID(0))
                     .put("reportTitleId", row.getUUID(1))
                     .put("counterReportId", row.getUUID(2))
-                    .put("pubYear", row.getString(3))
-                    .put("usageYearMonth", row.getString(4))
-                    .put("uniqueAccessCount", row.getInteger(5))
-                    .put("totalAccessCount", row.getInteger(6))
-                    .put("openAccess", row.getBoolean(7));
+                    .put("providerId", row.getUUID(3))
+                    .put("pubYear", row.getString(4))
+                    .put("usageYearMonth", row.getString(5))
+                    .put("uniqueAccessCount", row.getInteger(6))
+                    .put("totalAccessCount", row.getInteger(7))
+                    .put("openAccess", row.getBoolean(8));
                 ctx.response().write(obj.encode());
               });
               stream.endHandler(end -> {
@@ -289,16 +294,16 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   static Future<Void> insertTdEntry(TenantPgPool pool, SqlConnection con, UUID reportTitleId,
-                                    UUID counterReportId, String usageYearMonth,
+                                    UUID counterReportId, UUID providerId, String usageYearMonth,
                                     int totalAccessCount) {
     return con.preparedQuery("INSERT INTO " + titleDataTable(pool)
         + "(id, reportTitleId,"
-        + " counterReportId,"
+        + " counterReportId, providerId,"
         + " pubYear, usageYearMonth,"
         + " uniqueAccessCount, totalAccessCount, openAccess)"
-        + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
+        + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)")
         .execute(Tuple.tuple(List.of(UUID.randomUUID(), reportTitleId,
-            counterReportId,
+            counterReportId, providerId,
             "", usageYearMonth,
             totalAccessCount, totalAccessCount, false)))
         .mapEmpty();
@@ -351,6 +356,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
   Future<Void> handleReport(TenantPgPool pool, RoutingContext ctx, JsonObject jsonObject) {
     final UUID counterReportId = UUID.fromString(jsonObject.getString("id"));
+    final UUID providerId = UUID.fromString(jsonObject.getString("providerId"));
     final String usageYearMonth = jsonObject.getString("yearMonth");
     final JsonObject reportItem = jsonObject.getJsonObject("reportItem");
     final String match = getMatch(reportItem);
@@ -366,7 +372,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       future = future.compose(x ->
           upsertTeEntry(pool, con, ctx, counterReportTitle, match)
               .compose(reportTitleId -> insertTdEntry(pool, con, reportTitleId, counterReportId,
-                  usageYearMonth, totalAccessCount))
+                  providerId, usageYearMonth, totalAccessCount))
       );
       return future.compose(x -> tx.commit());
     }).eventually(x -> con.close()));
@@ -399,18 +405,18 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     List<Future<Void>> futures = new LinkedList<>();
 
     final String uri = "/counter-reports" + (id != null ? "/" + id : "");
+    AtomicInteger pathSize = new AtomicInteger(id != null ? 1 : 0);
     JsonObject reportObj = new JsonObject();
-    Deque<String> path = new LinkedList<>();
     parser.handler(event -> {
       log.debug("event type={}", event.type().name());
       JsonEventType type = event.type();
       if (JsonEventType.END_OBJECT.equals(type)) {
-        path.removeLast();
+        pathSize.decrementAndGet();
         objectMode.set(false);
         parser.objectEventMode();
       }
       if (JsonEventType.START_OBJECT.equals(type)) {
-        path.addLast(null);
+        pathSize.incrementAndGet();
       }
       if (objectMode.get() && event.isObject()) {
         reportObj.put("reportItem", event.objectValue());
@@ -419,12 +425,17 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       } else {
         String f = event.fieldName();
         log.debug("Field = {}", f);
-        if ("id".equals(f) && path.size() <= 2) {
-          reportObj.put("id", event.stringValue());
-          futures.add(clearTdEntry(pool, UUID.fromString(reportObj.getString("id"))));
-        }
-        if ("yearMonth".equals(f) && path.size() <= 2) {
-          reportObj.put("yearMonth", event.stringValue());
+        if (pathSize.get() == 2) { // if inside each top-level of each report
+          if ("id".equals(f)) {
+            reportObj.put("id", event.stringValue());
+            futures.add(clearTdEntry(pool, UUID.fromString(reportObj.getString("id"))));
+          }
+          if ("providerId".equals(f)) {
+            reportObj.put(f, event.stringValue());
+          }
+          if ("yearMonth".equals(f)) {
+            reportObj.put(f, event.stringValue());
+          }
         }
         if ("reportItems".equals(f) || "Report_Items".equals(f)) {
           objectMode.set(true);
@@ -434,7 +445,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     });
     parser.exceptionHandler(x -> {
       log.error("GET {} returned bad JSON: {}", uri, x.getMessage(), x);
-      promise.fail("GET " + uri + " returned bad JSON: " + x.getMessage());
+      promise.tryFail("GET " + uri + " returned bad JSON: " + x.getMessage());
     });
     parser.endHandler(e -> {
       log.error("parser.endHandler");
@@ -601,6 +612,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + "id UUID PRIMARY KEY, "
             + "reportTitleId UUID, "
             + "counterReportId UUID, "
+            + "providerId UUID, "
             + "pubYear text, "
             + "usageYearMonth text, "
             + "uniqueAccessCount integer, "
