@@ -112,7 +112,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                     AtomicInteger offset = new AtomicInteger();
                     RowStream<Row> stream = pq.createStream(50);
                     stream.handler(row -> {
-                      log.info("ROW=" + row.deepToString());
                       if (offset.incrementAndGet() > 1) {
                         ctx.response().write(",");
                       }
@@ -499,7 +498,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                             .put("counterReportTitle", row.getString(3))
                             .put("agreementLineId", row.getUUID(4))
                             .put("encumberedCost", row.getNumeric(5))
-                            .put("envoicedCost", row.getNumeric(6));
+                            .put("invoicedCost", row.getNumeric(6));
                         ctx.response().write(obj.encode());
                       });
                       endStream(stream, ctx, sqlConnection, tx);
@@ -510,40 +509,146 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         );
   }
 
-  Future<Integer> populateAgreement(Vertx vertx, RoutingContext ctx) {
-    RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
-    final String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
-    final String agreementId = ctx.getBodyAsJson().getString("agreementId");
-    if (agreementId == null) {
-      return Future.failedFuture("Missing agreementId property");
-    }
-    String uri = "/erm/sas/" + agreementId;
+  Future<Boolean> agreementExists(RoutingContext ctx, UUID agreementId) {
+    final String uri = "/erm/sas/" + agreementId;
     return createRequest(webClient, HttpMethod.GET, ctx, uri)
         .send()
         .compose(res -> {
           if (res.statusCode() == 404) {
-            return Future.succeededFuture(null);
+            return Future.succeededFuture(false);
           }
           if (res.statusCode() != 200) {
             return Future.failedFuture("GET " + uri + " returned status code " + res.statusCode());
           }
-          JsonObject obj = res.bodyAsJsonObject();
-          TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-          // TODO: fake at the moment
-          UUID id = UUID.randomUUID();
-          UUID titleDataId = UUID.randomUUID();
-          String type = "journal";
-          UUID agreementLineId = UUID.randomUUID();
-          String counterReportTitle = "fake counter report title";
-          Number encumberedCost = 21.0;
-          Number invoicedCost = 22.75;
-          return pool.preparedQuery("INSERT INTO " + reportDataTable(pool)
-              + "(id, titleDataId, type, counterReportTitle, agreementLineId,"
-              + " encumberedCost, invoicedCost)"
-              + " VALUES ($1, $2, $3, $4, $5, $6, $7)")
-              .execute(Tuple.of(id, titleDataId, type, counterReportTitle, agreementLineId,
-                  encumberedCost, invoicedCost))
-              .compose(res2 -> Future.succeededFuture(1));
+          return Future.succeededFuture(true);
+        });
+  }
+
+  Future<Tuple> lookupTitleFromKbTitle(TenantPgPool pool, UUID kbTitleId) {
+    return pool.preparedQuery("SELECT * FROM " + titleEntriesTable(pool)
+        + " WHERE kbTitleId = $1")
+        .execute(Tuple.of(kbTitleId))
+        .compose(res -> {
+          if (res.iterator().hasNext()) {
+            Row row = res.iterator().next();
+            return Future.succeededFuture(Tuple.of(
+                row.getUUID(0), row.getString(1)));
+          }
+          return Future.succeededFuture();
+        });
+  }
+
+  Future<JsonObject> lookupOrderLines(UUID poLineId, RoutingContext ctx) {
+    String uri = "/orders/order-lines/" + poLineId;
+    return createRequest(webClient, HttpMethod.GET, ctx, uri)
+        .send()
+        .compose(res -> {
+          if (res.statusCode() != 200) {
+            return Future.failedFuture("GET " + uri + " returned status code " + res.statusCode());
+          }
+          return Future.succeededFuture(res.bodyAsJsonObject());
+        });
+  }
+
+  Future<JsonObject> lookupOrderLines(JsonArray poLinesAr, RoutingContext ctx) {
+    List<Future<Void>> futures = new LinkedList<>();
+
+    JsonObject totalCost = new JsonObject();
+    totalCost.put("total", 0.0);
+    for (int i = 0; i < poLinesAr.size(); i++) {
+      futures.add(lookupOrderLines(
+          UUID.fromString(poLinesAr.getJsonObject(i).getString("poLineId")), ctx
+      )
+          .compose(poLine -> {
+            JsonObject cost = poLine.getJsonObject("cost");
+            String currency = totalCost.getString("currency");
+            if (currency != null && !currency.equals(cost.getString("currency"))) {
+              return Future.failedFuture("Mixed currencies in order lines " + poLinesAr.encode());
+            }
+            totalCost.put("currency", currency);
+            totalCost.put("total",
+                totalCost.getDouble("total") + cost.getDouble("listUnitPriceElectronic"));
+            return Future.succeededFuture();
+          }));
+    }
+    return GenericCompositeFuture.all(futures).map(totalCost);
+  }
+
+  Future<Void> populateAgreementLine(JsonObject agreementLine, TenantPgPool pool, UUID agreementId,
+                                     RoutingContext ctx) {
+    JsonObject resourceObject = agreementLine.getJsonObject("resource");
+    if (resourceObject == null) {
+      return Future.failedFuture("Missing property resource from agreement " + agreementId);
+    }
+    JsonObject underScoreObject = resourceObject.getJsonObject("_object");
+    if (underScoreObject == null) {
+      return Future.failedFuture("Missing property _object from agreement " + agreementId);
+    }
+    JsonObject pti = underScoreObject.getJsonObject("pti");
+    if (pti == null) {
+      return Future.failedFuture("Missing property pti from agreement " + agreementId);
+    }
+    JsonObject titleInstance = pti.getJsonObject("titleInstance");
+    if (titleInstance == null) {
+      return Future.failedFuture("Missing property titleInstance from agreement " + agreementId);
+    }
+    UUID agreementLineId = UUID.fromString(agreementLine.getString("id"));
+    UUID kbTitleId = UUID.fromString(titleInstance.getString("id"));
+    String type = titleInstance.getJsonObject("publicationType").getString("value");
+    return lookupOrderLines(agreementLine.getJsonArray("poLines"), ctx)
+        .compose(cost ->
+            lookupTitleFromKbTitle(pool, kbTitleId)
+                .compose(tuple -> {
+                  UUID id = UUID.randomUUID();
+                  UUID titleDataId = tuple.getUUID(0);
+                  String counterReportTitle = tuple.getString(1);
+
+                  Number encumberedCost = cost.getDouble("total");
+                  Number invoicedCost = 22.75;
+                  return pool.preparedQuery("INSERT INTO " + reportDataTable(pool)
+                      + "(id, titleDataId, type, counterReportTitle, agreementLineId,"
+                      + " encumberedCost, invoicedCost)"
+                      + " VALUES ($1, $2, $3, $4, $5, $6, $7)")
+                      .execute(Tuple.of(id, titleDataId, type, counterReportTitle, agreementLineId,
+                          encumberedCost, invoicedCost))
+                      .mapEmpty();
+                })
+        );
+  }
+
+  Future<Integer> populateAgreement(Vertx vertx, RoutingContext ctx) {
+    RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+    final String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+    final String agreementIdStr = ctx.getBodyAsJson().getString("agreementId");
+    if (agreementIdStr == null) {
+      return Future.failedFuture("Missing agreementId property");
+    }
+    TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
+    final UUID agreementId = UUID.fromString(agreementIdStr);
+    return agreementExists(ctx, agreementId)
+        .compose(exists -> {
+          if (!exists) {
+            return Future.succeededFuture(null);
+          }
+          // expand agreement to get agreement lines, now that we know the agreement ID is good.
+          // the call below returns 500 with a stacktrace if agremment ID is no good.
+          String uri = "/erm/entitlements?filters=owner%3D" + agreementId;
+          return createRequest(webClient, HttpMethod.GET, ctx, uri)
+              .send()
+              .compose(res -> {
+                if (res.statusCode() != 200) {
+                  return Future.failedFuture("GET " + uri + " returned status code "
+                      + res.statusCode());
+                }
+                Future<Void> future = Future.succeededFuture();
+                JsonArray items = res.bodyAsJsonArray();
+                for (int i = 0; i < items.size(); i++) {
+                  JsonObject agreementLine = items.getJsonObject(i);
+                  future = future
+                      .compose(v -> populateAgreementLine(agreementLine, pool, agreementId, ctx));
+                }
+                return future.map(items.size());
+              });
         });
   }
 
