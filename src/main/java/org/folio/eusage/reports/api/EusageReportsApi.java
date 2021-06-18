@@ -493,12 +493,18 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                         }
                         JsonObject obj = new JsonObject()
                             .put("id", row.getUUID(0))
-                            .put("titleDataId", row.getUUID(1))
                             .put("type", row.getString(2))
-                            .put("counterReportTitle", row.getString(3))
                             .put("agreementLineId", row.getUUID(4))
                             .put("encumberedCost", row.getNumeric(5))
                             .put("invoicedCost", row.getNumeric(6));
+                        UUID titleDataId = row.getUUID(1);
+                        if (titleDataId != null) {
+                          obj.put("titleDataId", titleDataId);
+                        }
+                        String counterReportTitle = row.getString(3);
+                        if (counterReportTitle != null) {
+                          obj.put("counterReportTitle", counterReportTitle);
+                        }
                         ctx.response().write(obj.encode());
                       });
                       endStream(stream, ctx, sqlConnection, tx);
@@ -562,10 +568,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           .compose(poLine -> {
             JsonObject cost = poLine.getJsonObject("cost");
             String currency = totalCost.getString("currency");
-            if (currency != null && !currency.equals(cost.getString("currency"))) {
-              return Future.failedFuture("Mixed currencies in order lines " + poLinesAr.encode());
+            String newCurrency = cost.getString("currency");
+            if (currency != null && !currency.equals(newCurrency)) {
+              return Future.failedFuture("Mixed currencies (" + currency + ", " + newCurrency
+                  + ") in order lines " + poLinesAr.encode());
             }
-            totalCost.put("currency", currency);
+            totalCost.put("currency", newCurrency);
             totalCost.put("total",
                 totalCost.getDouble("total") + cost.getDouble("listUnitPriceElectronic"));
             return Future.succeededFuture();
@@ -600,9 +608,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             lookupTitleFromKbTitle(pool, kbTitleId)
                 .compose(tuple -> {
                   UUID id = UUID.randomUUID();
-                  UUID titleDataId = tuple.getUUID(0);
-                  String counterReportTitle = tuple.getString(1);
-
+                  UUID titleDataId = tuple != null ? tuple.getUUID(0) : null;
+                  String counterReportTitle = tuple != null ? tuple.getString(1) : null;
                   Number encumberedCost = cost.getDouble("total");
                   Number invoicedCost = 22.75;
                   return pool.preparedQuery("INSERT INTO " + reportDataTable(pool)
@@ -640,6 +647,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                   return Future.failedFuture("GET " + uri + " returned status code "
                       + res.statusCode());
                 }
+                // TODO clear all existing entries from that agreement and run in transaction
                 Future<Void> future = Future.succeededFuture();
                 JsonArray items = res.bodyAsJsonArray();
                 for (int i = 0; i < items.size(); i++) {

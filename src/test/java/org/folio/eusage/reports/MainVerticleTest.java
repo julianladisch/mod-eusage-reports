@@ -11,6 +11,9 @@ import io.vertx.ext.unit.TestContext;
 import io.vertx.ext.unit.junit.VertxUnitRunner;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
+
+import java.util.LinkedList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
@@ -314,9 +317,9 @@ public class MainVerticleTest {
     if (agreementId.equals(goodAgreementId)) {
       for (int i = 0; i < agreementLineIds.length; i++) {
         JsonArray poLinesAr = new JsonArray();
-        if (i < poLineIds.length) {
+        for (int j = 0; j < i && j < poLineIds.length; j++) {
           poLinesAr.add(new JsonObject()
-              .put("poLineId", poLineIds[i])
+              .put("poLineId", poLineIds[j])
           );
         }
         ar.add(new JsonObject()
@@ -328,7 +331,7 @@ public class MainVerticleTest {
                 .put("_object", new JsonObject()
                     .put("pti", new JsonObject()
                         .put("titleInstance", new JsonObject()
-                            .put("id", goodKbTitleId)
+                            .put("id", i < 2 ? goodKbTitleId : UUID.randomUUID())
                             .put("publicationType", new JsonObject()
                                 .put("value", "serial")
                             )
@@ -345,6 +348,8 @@ public class MainVerticleTest {
     ctx.response().end(ar.encode());
   }
 
+  static List<String> orderLinesCurrencies = new LinkedList<>();
+
   static void getOrderLines(RoutingContext ctx) {
     String path = ctx.request().path();
     int offset = path.lastIndexOf('/');
@@ -355,8 +360,9 @@ public class MainVerticleTest {
         ctx.response().putHeader("Content-Type", "application/json");
         JsonObject orderLine = new JsonObject();
         orderLine.put("id", id);
+        String currency = i < orderLinesCurrencies.size() ? orderLinesCurrencies.get(i) : "USD";
         orderLine.put("cost", new JsonObject()
-            .put("currency", "USD")
+            .put("currency", currency)
             .put("listUnitPriceElectronic", 100.0 + (i * i))
             );
         ctx.response().end(orderLine.encode());
@@ -826,6 +832,22 @@ public class MainVerticleTest {
         .extract();
     resObject = new JsonObject(response.body().asString());
     context.assertEquals(3, resObject.getJsonArray("data").size());
+
+    orderLinesCurrencies.clear();
+    orderLinesCurrencies.add("DKK");
+    orderLinesCurrencies.add("EUR");
+
+    RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .header("Content-Type", "application/json")
+        .body(new JsonObject()
+            .put("agreementId", goodAgreementId)
+            .encode())
+        .post("/eusage-reports/report-data/from-agreement")
+        .then().statusCode(400)
+        .header("Content-Type", is("text/plain"))
+        .body(containsString("Mixed currencies"));
 
     // disable
     tenantOp(context, tenant,
