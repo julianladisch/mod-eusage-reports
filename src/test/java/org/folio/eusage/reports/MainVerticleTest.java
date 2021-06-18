@@ -11,6 +11,9 @@ import io.vertx.ext.unit.TestContext;
 import io.vertx.ext.unit.junit.VertxUnitRunner;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
+
+import java.util.LinkedList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.apache.logging.log4j.LogManager;
@@ -34,13 +37,21 @@ public class MainVerticleTest {
   static Vertx vertx;
   static final int MODULE_PORT = 9230;
   static final int MOCK_PORT = 9231;
+  static final UUID goodKbTitleId = UUID.randomUUID();
   static final UUID goodCounterReportId = UUID.randomUUID();
   static final UUID badJsonCounterReportId = UUID.randomUUID();
   static final UUID badStatusCounterReportId = UUID.randomUUID();
   static final UUID goodAgreementId = UUID.randomUUID();
   static final UUID badJsonAgreementId = UUID.randomUUID();
   static final UUID badStatusAgreementId = UUID.randomUUID();
+  static final UUID badStatusAgreementId2 = UUID.randomUUID();
   static final UUID usageProviderId = UUID.randomUUID();
+  static final UUID agreementLineIds[] = {
+      UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()
+  };
+  static final UUID poLineIds[] = {
+      UUID.randomUUID(), UUID.randomUUID()
+  };
 
   @ClassRule
   public static PostgreSQLContainer<?> postgresSQLContainer = TenantPgPoolContainer.create();
@@ -236,9 +247,12 @@ public class MainVerticleTest {
     ctx.response().putHeader("Content-Type", "application/json");
     String term = ctx.request().getParam("term");
     JsonArray ar = new JsonArray();
+
+    // return a known kbTitleId for "The cats journal"
+    UUID kbTitleId = "1000-1002".equals(term) ? goodKbTitleId : UUID.randomUUID();
     if (!"1001-1002".equals(term)) { // for "The dogs journal" , no kb match
       ar.add(new JsonObject()
-          .put("id", UUID.randomUUID())
+          .put("id", kbTitleId)
           .put("name", "fake kb title instance name")
       );
     }
@@ -263,7 +277,7 @@ public class MainVerticleTest {
     String path = ctx.request().path();
     int offset = path.lastIndexOf('/');
     UUID id = UUID.fromString(path.substring(offset + 1));
-    if (id.equals(goodAgreementId)) {
+    if (id.equals(goodAgreementId) || id.equals(badStatusAgreementId2)) {
       ctx.response().setChunked(true);
       ctx.response().putHeader("Content-Type", "application/json");
       ctx.response().end(new JsonObject().encode());
@@ -282,6 +296,91 @@ public class MainVerticleTest {
     }
   }
 
+  static void getEntitlements(RoutingContext ctx) {
+    String filters = ctx.request().getParam("filters");
+    if (filters == null) {
+      ctx.response().putHeader("Content-Type", "text/plain");
+      ctx.response().setStatusCode(400);
+      ctx.response().end("filters missing");
+      return;
+    }
+    UUID agreementId = badStatusAgreementId;
+    if (filters.startsWith("owner=")) {
+      agreementId = UUID.fromString(filters.substring(6));
+    }
+    if (agreementId.equals(badJsonAgreementId)) {
+      ctx.response().setChunked(true);
+      ctx.response().putHeader("Content-Type", "application/json");
+      ctx.response().end("[{]");
+      return;
+    }
+    if (agreementId.equals(badStatusAgreementId2)) {
+      ctx.response().putHeader("Content-Type", "text/plain");
+      ctx.response().setStatusCode(500);
+      ctx.response().end("internal error");
+      return;
+    }
+    JsonArray ar = new JsonArray();
+    if (agreementId.equals(goodAgreementId)) {
+      for (int i = 0; i < agreementLineIds.length; i++) {
+        JsonArray poLinesAr = new JsonArray();
+        for (int j = 0; j < i && j < poLineIds.length; j++) {
+          poLinesAr.add(new JsonObject()
+              .put("poLineId", poLineIds[j])
+          );
+        }
+        ar.add(new JsonObject()
+            .put("id", agreementLineIds[i])
+            .put("owner", new JsonObject()
+                .put("id", goodAgreementId)
+                .put("name", "Good agreement"))
+            .put("resource", new JsonObject()
+                .put("_object", new JsonObject()
+                    .put("pti", new JsonObject()
+                        .put("titleInstance", new JsonObject()
+                            .put("id", i < 2 ? goodKbTitleId : UUID.randomUUID())
+                            .put("publicationType", new JsonObject()
+                                .put("value", "serial")
+                            )
+                        )
+                    )
+                )
+            )
+            .put("poLines", poLinesAr)
+        );
+      }
+    }
+    ctx.response().setChunked(true);
+    ctx.response().putHeader("Content-Type", "application/json");
+    ctx.response().end(ar.encode());
+  }
+
+  static List<String> orderLinesCurrencies = new LinkedList<>();
+
+  static void getOrderLines(RoutingContext ctx) {
+    String path = ctx.request().path();
+    int offset = path.lastIndexOf('/');
+    UUID id = UUID.fromString(path.substring(offset + 1));
+    for (int i = 0; i < poLineIds.length; i++) {
+      if (id.equals(poLineIds[i])) {
+        ctx.response().setChunked(true);
+        ctx.response().putHeader("Content-Type", "application/json");
+        JsonObject orderLine = new JsonObject();
+        orderLine.put("id", id);
+        String currency = i < orderLinesCurrencies.size() ? orderLinesCurrencies.get(i) : "USD";
+        orderLine.put("cost", new JsonObject()
+            .put("currency", currency)
+            .put("listUnitPriceElectronic", 100.0 + (i * i))
+            );
+        ctx.response().end(orderLine.encode());
+        return;
+      }
+    }
+    ctx.response().putHeader("Content-Type", "text/plain");
+    ctx.response().setStatusCode(404);
+    ctx.response().end("Order line not found");
+  }
+
   @BeforeClass
   public static void beforeClass(TestContext context) {
     vertx = Vertx.vertx();
@@ -294,6 +393,8 @@ public class MainVerticleTest {
     router.getWithRegex("/erm/resource").handler(MainVerticleTest::getErmResource);
     router.getWithRegex("/erm/resource/[-0-9a-z]*/entitlementOptions").handler(MainVerticleTest::getErmResourceEntitlement);
     router.getWithRegex("/erm/sas/[-0-9a-z]*").handler(MainVerticleTest::getAgreement);
+    router.getWithRegex("/erm/entitlements").handler(MainVerticleTest::getEntitlements);
+    router.getWithRegex("/orders/order-lines/[-0-9a-z]*").handler(MainVerticleTest::getOrderLines);
     vertx.createHttpServer()
         .requestHandler(router)
         .listen(MOCK_PORT)
@@ -715,6 +816,18 @@ public class MainVerticleTest {
         .header("Content-Type", is("text/plain"))
         .body(containsString("returned status code 403"));
 
+    RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .header("Content-Type", "application/json")
+        .body(new JsonObject()
+            .put("agreementId", badStatusAgreementId2)
+            .encode())
+        .post("/eusage-reports/report-data/from-agreement")
+        .then().statusCode(400)
+        .header("Content-Type", is("text/plain"))
+        .body(containsString("returned status code 500"));
+
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
@@ -727,7 +840,7 @@ public class MainVerticleTest {
         .header("Content-Type", is("application/json"))
         .extract();
     resObject = new JsonObject(response.body().asString());
-    context.assertEquals(1, resObject.getInteger("reportLinesCreated"));
+    context.assertEquals(3, resObject.getInteger("reportLinesCreated"));
 
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
@@ -737,7 +850,23 @@ public class MainVerticleTest {
         .header("Content-Type", is("application/json"))
         .extract();
     resObject = new JsonObject(response.body().asString());
-    context.assertEquals(1, resObject.getJsonArray("data").size());
+    context.assertEquals(3, resObject.getJsonArray("data").size());
+
+    orderLinesCurrencies.clear();
+    orderLinesCurrencies.add("DKK");
+    orderLinesCurrencies.add("EUR");
+
+    RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .header("Content-Type", "application/json")
+        .body(new JsonObject()
+            .put("agreementId", goodAgreementId)
+            .encode())
+        .post("/eusage-reports/report-data/from-agreement")
+        .then().statusCode(400)
+        .header("Content-Type", is("text/plain"))
+        .body(containsString("Mixed currencies"));
 
     // disable
     tenantOp(context, tenant,

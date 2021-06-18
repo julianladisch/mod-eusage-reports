@@ -71,7 +71,8 @@
             "erm.packages.item.get",
             "erm.resources.collection.get",
             "erm.resources.item.entitlement.get",
-            "erm.resources.item.get"
+            "erm.resources.item.get",
+	    "orders.po-lines.item.get"
 	  ]
 	}
       ]
@@ -101,6 +102,10 @@
     {
       "id" : "erm-usage/files",
       "version" : "1.0"
+    },
+    {
+      "id" : "order-lines",
+      "version" : "2.0"
     }
   ],
   "permissionSets" : [
