@@ -44,6 +44,7 @@ public class MainVerticleTest {
   static final UUID goodAgreementId = UUID.randomUUID();
   static final UUID badJsonAgreementId = UUID.randomUUID();
   static final UUID badStatusAgreementId = UUID.randomUUID();
+  static final UUID badStatusAgreementId2 = UUID.randomUUID();
   static final UUID usageProviderId = UUID.randomUUID();
   static final UUID agreementLineIds[] = {
       UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()
@@ -276,7 +277,7 @@ public class MainVerticleTest {
     String path = ctx.request().path();
     int offset = path.lastIndexOf('/');
     UUID id = UUID.fromString(path.substring(offset + 1));
-    if (id.equals(goodAgreementId)) {
+    if (id.equals(goodAgreementId) || id.equals(badStatusAgreementId2)) {
       ctx.response().setChunked(true);
       ctx.response().putHeader("Content-Type", "application/json");
       ctx.response().end(new JsonObject().encode());
@@ -311,6 +312,12 @@ public class MainVerticleTest {
       ctx.response().setChunked(true);
       ctx.response().putHeader("Content-Type", "application/json");
       ctx.response().end("[{]");
+      return;
+    }
+    if (agreementId.equals(badStatusAgreementId2)) {
+      ctx.response().putHeader("Content-Type", "text/plain");
+      ctx.response().setStatusCode(500);
+      ctx.response().end("internal error");
       return;
     }
     JsonArray ar = new JsonArray();
@@ -808,6 +815,18 @@ public class MainVerticleTest {
         .then().statusCode(400)
         .header("Content-Type", is("text/plain"))
         .body(containsString("returned status code 403"));
+
+    RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .header("Content-Type", "application/json")
+        .body(new JsonObject()
+            .put("agreementId", badStatusAgreementId2)
+            .encode())
+        .post("/eusage-reports/report-data/from-agreement")
+        .then().statusCode(400)
+        .header("Content-Type", is("text/plain"))
+        .body(containsString("returned status code 500"));
 
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
