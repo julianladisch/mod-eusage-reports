@@ -611,7 +611,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                   UUID titleDataId = tuple != null ? tuple.getUUID(0) : null;
                   String counterReportTitle = tuple != null ? tuple.getString(1) : null;
                   Number encumberedCost = cost.getDouble("total");
-                  Number invoicedCost = 22.75;
+                  Number invoicedCost = null;
                   return pool.preparedQuery("INSERT INTO " + reportDataTable(pool)
                       + "(id, titleDataId, type, counterReportTitle, agreementLineId,"
                       + " encumberedCost, invoicedCost)"
