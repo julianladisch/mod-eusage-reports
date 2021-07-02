@@ -1,26 +1,34 @@
 {
-  "description": "report data entry",
+  "description": "report data entry (agreement line information)",
   "type": "object",
   "properties": {
     "id": {
       "type": "string",
       "description": "report data identifier"
     },
-    "titleDataId": {
+    "kbTitleId": {
       "type": "string",
-      "description": "title data identifier"
+      "description": "kb title identifier (if the agreement line is a title)"
+    },
+    "kbPackageId": {
+      "type": "string",
+      "description": "kb package identifier (if the agreement line is a package)"
     },
     "type": {
       "type": "string",
       "description": "one of journal, pacakge, ebook"
     },
-    "counterReportTitle": {
+    "agreementId": {
       "type": "string",
-      "description": "Counter report title"
+      "description": "agreement identifier (UUID)"
     },
     "agreementLineId": {
       "type": "string",
-      "description": "agreement identifier"
+      "description": "agreement line identifier (UUID)"
+    },
+    "poLineId": {
+      "type": "string",
+      "description": "po line identifier (UUID)"
     },
     "encumberedCost": {
       "type": "number",
@@ -29,10 +37,22 @@
     "invoicedCost": {
       "type": "number",
       "description": "Total access count"
+    },
+    "fiscalYearRange": {
+      "type": "string",
+      "description": "kept on the fiscal year record, there should be a link from the invoice to that record"
+    },
+    "subscriptionDateRange": {
+      "type": "string",
+      "description": "subscription period - retrieved from the invoice"
+    },
+    "coverageDateRanges": {
+      "type": "string",
+      "description": "coverage dates as retrieved from the agreement"
     }
   },
   "additionalProperties": false,
   "required": [
-    "id", "titleDataId"
+    "id", "agreementLineId"
   ]
 }

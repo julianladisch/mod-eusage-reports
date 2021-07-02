@@ -11,7 +11,6 @@ import io.vertx.ext.unit.TestContext;
 import io.vertx.ext.unit.junit.VertxUnitRunner;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
-
 import java.util.LinkedList;
 import java.util.List;
 import java.util.UUID;
@@ -37,8 +36,14 @@ public class MainVerticleTest {
   static Vertx vertx;
   static final int MODULE_PORT = 9230;
   static final int MOCK_PORT = 9231;
+  static final String pubDateSample = "1998-05-19";
   static final UUID goodKbTitleId = UUID.randomUUID();
+  static final String goodKbTitleISSN = "1000-1002";
+  static final UUID otherKbTitleId = UUID.randomUUID();
+  static final String otherKbTitleISSN = "1000-2000";
+  static final String noMatchKbTitleISSN = "1001-1002";
   static final UUID goodCounterReportId = UUID.randomUUID();
+  static final UUID otherCounterReportId = UUID.randomUUID();
   static final UUID badJsonCounterReportId = UUID.randomUUID();
   static final UUID badStatusCounterReportId = UUID.randomUUID();
   static final UUID goodAgreementId = UUID.randomUUID();
@@ -46,10 +51,14 @@ public class MainVerticleTest {
   static final UUID badStatusAgreementId = UUID.randomUUID();
   static final UUID badStatusAgreementId2 = UUID.randomUUID();
   static final UUID usageProviderId = UUID.randomUUID();
-  static final UUID agreementLineIds[] = {
-      UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()
+  static final UUID[] agreementLineIds = {
+      UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID()
   };
-  static final UUID poLineIds[] = {
+  static final UUID[] poLineIds = {
+      UUID.randomUUID(), UUID.randomUUID()
+  };
+  static final UUID goodPackageId = UUID.randomUUID();
+  static final UUID[] packageTitles = {
       UUID.randomUUID(), UUID.randomUUID()
   };
 
@@ -89,7 +98,11 @@ public class MainVerticleTest {
                         )
                         .add(new JsonObject()
                             .put("type", "ONLINE_ISSN")
-                            .put("value", "1000-1002")
+                            .put("value", goodKbTitleISSN)
+                        )
+                        .add(new JsonObject()
+                            .put("type", "Publication_Date")
+                            .put("value", pubDateSample)
                         )
                     )
                     .put("itemPerformance", new JsonArray()
@@ -113,7 +126,7 @@ public class MainVerticleTest {
                     )
                 )
                 .add(new JsonObject()
-                    .put("Title", "The dogs journal")
+                    .put("Title", cnt == -1 ? "The other journal" : "The dogs journal")
                     .put("itemDataType", "JOURNAL")
                     .put("Item_ID", new JsonArray()
                         .add(new JsonObject()
@@ -127,7 +140,7 @@ public class MainVerticleTest {
                         )
                         .add(new JsonObject()
                             .put("type", "Online_ISSN")
-                            .put("value", "1001-1002")
+                            .put("value",  cnt == -1 ? otherKbTitleISSN : noMatchKbTitleISSN)
                         )
                     )
                     .put("Performance", new JsonArray()
@@ -239,6 +252,10 @@ public class MainVerticleTest {
       ctx.response().setChunked(true);
       ctx.response().putHeader("Content-Type", "application/json");
       ctx.response().end(getCounterReportMock(id, 0).encode());
+    } else if (id.equals(otherCounterReportId)) {
+        ctx.response().setChunked(true);
+        ctx.response().putHeader("Content-Type", "application/json");
+        ctx.response().end(getCounterReportMock(id, -1).encode());
     } else  if (id.equals(badStatusCounterReportId)) {
       ctx.response().putHeader("Content-Type", "text/plain");
       ctx.response().setStatusCode(403);
@@ -254,21 +271,63 @@ public class MainVerticleTest {
     }
   }
 
+  static JsonObject getKbTitle(UUID kbTitleId) {
+    JsonObject res = new JsonObject();
+    if (goodKbTitleId.equals(kbTitleId)) {
+      res.put("name", "good kb title instance name");
+      res.put("id", kbTitleId);
+      res.put("identifiers", new JsonArray()
+          .add(new JsonObject()
+              .put("identifier", new JsonObject()
+                  .put("value", goodKbTitleISSN)
+              )
+          ));
+    } else if (otherKbTitleId.equals(kbTitleId)) {
+      res.put("name", "other kb title instance name");
+      res.put("id", kbTitleId);
+      res.put("identifiers", new JsonArray()
+          .add(new JsonObject()
+              .put("identifier", new JsonObject()
+                  .put("value", otherKbTitleISSN)
+              )
+          ));
+    } else {
+      res.put("name", "fake kb title instance name");
+      res.put("id", kbTitleId);
+      res.put("identifiers", new JsonArray()
+          .add(new JsonObject()
+              .put("identifier", new JsonObject()
+                  .put("value", "1000-9999")
+              )
+          ));
+    }
+    return res;
+  }
   static void getErmResource(RoutingContext ctx) {
     ctx.response().setChunked(true);
     ctx.response().putHeader("Content-Type", "application/json");
     String term = ctx.request().getParam("term");
     JsonArray ar = new JsonArray();
-
-    // return a known kbTitleId for "The cats journal"
-    UUID kbTitleId = "1000-1002".equals(term) ? goodKbTitleId : UUID.randomUUID();
-    if (!"1001-1002".equals(term)) { // for "The dogs journal" , no kb match
-      ar.add(new JsonObject()
-          .put("id", kbTitleId)
-          .put("name", "fake kb title instance name")
-      );
+    UUID kbTitleId;
+    switch (term) {
+      case goodKbTitleISSN: kbTitleId = goodKbTitleId; break; // return a known kbTitleId for "The cats journal"
+      case otherKbTitleISSN: kbTitleId = otherKbTitleId; break;
+      default: kbTitleId = UUID.randomUUID();
+    }
+    if (!noMatchKbTitleISSN.equals(term)) { // for "The dogs journal" , no kb match
+      ar.add(getKbTitle(kbTitleId));
     }
     ctx.response().end(ar.encode());
+  }
+
+  static void getErmResourceId(RoutingContext ctx) {
+    String path = ctx.request().path();
+    int offset = path.lastIndexOf('/');
+    UUID id = UUID.fromString(path.substring(offset + 1));
+
+    ctx.response().setChunked(true);
+    ctx.response().putHeader("Content-Type", "application/json");
+    ctx.response().end(getKbTitle(id).encode());
   }
 
   static void getErmResourceEntitlement(RoutingContext ctx) {
@@ -341,25 +400,65 @@ public class MainVerticleTest {
               .put("poLineId", poLineIds[j])
           );
         }
-        ar.add(new JsonObject()
-            .put("id", agreementLineIds[i])
-            .put("owner", new JsonObject()
-                .put("id", goodAgreementId)
-                .put("name", "Good agreement"))
-            .put("resource", new JsonObject()
-                .put("_object", new JsonObject()
-                    .put("pti", new JsonObject()
-                        .put("titleInstance", new JsonObject()
-                            .put("id", i < 2 ? goodKbTitleId : UUID.randomUUID())
-                            .put("publicationType", new JsonObject()
-                                .put("value", "serial")
-                            )
-                        )
-                    )
-                )
-            )
-            .put("poLines", poLinesAr)
-        );
+        if (i == 0) {
+          // fake package
+          ar.add(new JsonObject()
+              .put("id", agreementLineIds[i])
+              .put("owner", new JsonObject()
+                  .put("id", goodAgreementId)
+                  .put("name", "Good agreement"))
+              .put("resource", new JsonObject()
+                  .put("class", "org.olf.kb.Pkg")
+                  .put("name", "good package name")
+                  .put("id", goodPackageId)
+                  .put("_object", new JsonObject()
+                  ))
+              .put("poLines", poLinesAr)
+          );
+        } else {
+          // fake package content item
+          JsonArray coverage = new JsonArray();
+          UUID kbtitleId;
+          switch (i) {
+            case 1:
+              coverage.add(new JsonObject()
+                  .put("startDate", "2020-03-09")
+                  .put("endDate", "2020-04-05")
+              );
+              kbtitleId = goodKbTitleId;
+              break;
+            case 2:
+              coverage.add(new JsonObject()
+                  .put("startDate", "2021-03-09")
+              );
+              kbtitleId = otherKbTitleId;
+              break;
+            default:
+              kbtitleId = UUID.randomUUID();
+          }
+          ar.add(new JsonObject()
+              .put("id", agreementLineIds[i])
+              .put("owner", new JsonObject()
+                  .put("id", goodAgreementId)
+                  .put("name", "Good agreement"))
+              .put("resource", new JsonObject()
+                  .put("class", "org.olf.kb.PackageContentItem")
+                  .put("id", UUID.randomUUID())
+                  .put("coverage", coverage)
+                  .put("_object", new JsonObject()
+                      .put("pti", new JsonObject()
+                          .put("titleInstance", new JsonObject()
+                              .put("id", kbtitleId)
+                              .put("publicationType", new JsonObject()
+                                  .put("value", "serial")
+                              )
+                          )
+                      )
+                  )
+              )
+              .put("poLines", poLinesAr)
+          );
+        }
       }
     }
     ctx.response().setChunked(true);
@@ -406,12 +505,18 @@ public class MainVerticleTest {
     JsonArray ar = new JsonArray();
     for (int i = 0; i < poLineIds.length; i++) {
       if (poLineId.equals(poLineIds[i])) {
-        ar.add(new JsonObject()
+        {
+          JsonObject invoice = new JsonObject()
             .put("poLineId", poLineId)
             .put("quantity", 1 + i)
             .put("subTotal", 10.0 + i * 5)
-            .put("total", 12.0 + i * 6)
-        );
+            .put("total", 12.0 + i * 6);
+          if (i == 0) {
+            invoice.put("subscriptionStart", "2020-01-01T00:00:00.000+00:00");
+            invoice.put("subscriptionEnd", "2020-12-31T00:00:00.000+00:00");
+          }
+          ar.add(invoice);
+        }
       }
     }
     ar.add(new JsonObject()
@@ -419,6 +524,31 @@ public class MainVerticleTest {
     );
     ctx.response().setChunked(true);
     ctx.response().putHeader("Content-Type", "application/json");
+    ctx.response().end(new JsonObject().put("invoiceLines", ar).encode());
+  }
+
+  static void getPackageContent(RoutingContext ctx) {
+    String path = ctx.request().path();
+    UUID id = UUID.fromString(path.substring(14, 50));
+    if (!id.equals(goodPackageId)) {
+      ctx.response().putHeader("Content-Type", "text/plain");
+      ctx.response().setStatusCode(404);
+      ctx.response().end("Package not found");
+      return;
+    }
+    JsonArray ar = new JsonArray();
+    for (UUID packageTitle : packageTitles) {
+      JsonObject item = new JsonObject()
+          .put("id", UUID.randomUUID())
+          .put("pti", new JsonObject()
+              .put("titleInstance", new JsonObject()
+                  .put("id", packageTitle)
+              )
+          );
+      ar.add(item);
+    }
+    ctx.response().putHeader("Content-Type", "application/json");
+    ctx.response().setStatusCode(200);
     ctx.response().end(ar.encode());
   }
 
@@ -432,11 +562,13 @@ public class MainVerticleTest {
     router.getWithRegex("/counter-reports").handler(MainVerticleTest::getCounterReports);
     router.getWithRegex("/counter-reports/[-0-9a-z]*").handler(MainVerticleTest::getCounterReport);
     router.getWithRegex("/erm/resource").handler(MainVerticleTest::getErmResource);
+    router.getWithRegex("/erm/resource/[-0-9a-z]*").handler(MainVerticleTest::getErmResourceId);
     router.getWithRegex("/erm/resource/[-0-9a-z]*/entitlementOptions").handler(MainVerticleTest::getErmResourceEntitlement);
     router.getWithRegex("/erm/sas/[-0-9a-z]*").handler(MainVerticleTest::getAgreement);
     router.getWithRegex("/erm/entitlements").handler(MainVerticleTest::getEntitlements);
     router.getWithRegex("/orders/order-lines/[-0-9a-z]*").handler(MainVerticleTest::getOrderLines);
     router.getWithRegex("/invoice-storage/invoice-lines").handler(MainVerticleTest::getInvoiceLines);
+    router.getWithRegex("/erm/packages/[-0-9a-z]*/content").handler(MainVerticleTest::getPackageContent);
     vertx.createHttpServer()
         .requestHandler(router)
         .listen(MOCK_PORT)
@@ -471,12 +603,22 @@ public class MainVerticleTest {
           .get("/eusage-reports/report-titles")
           .then().statusCode(400)
           .header("Content-Type", is("text/plain"))
-          .body(containsString("testlib_mod_eusage_reports.te_table"));
+          .body(containsString("testlib_mod_eusage_reports.title_entries"));
     }
   }
 
   @Test
-  public void testGetTitlesNoOkapiUrl() {
+  public void testGetTitlesNoTenant() {
+    RestAssured.given()
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-titles")
+        .then().statusCode(400)
+        .header("Content-Type", is("text/plain"))
+        .body(containsString("Tenant must not be null"));
+  }
+
+  @Test
+  public void testPostTitlesFromCounterNoOkapiUrl() {
     String tenant = "testlib";
     RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
@@ -514,7 +656,63 @@ public class MainVerticleTest {
         ).encode())
         .post("/eusage-reports/report-titles")
         .then().statusCode(400)
-        .body(containsString("testlib_mod_eusage_reports.te_table"));
+        .body(containsString("testlib_mod_eusage_reports.title_entries"));
+  }
+
+  @Test
+  public void testPostTitlesBadUUID1() {
+    String tenant = "testlib";
+    RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header("Content-Type", "application/json")
+        .body(new JsonObject().put("titles", new JsonArray()
+            .add(new JsonObject()
+                .put("id", "1234")
+                .put("kbTitleName", "kb title name")
+                .put("kbTitleId", UUID.randomUUID().toString())
+            )
+        ).encode())
+        .post("/eusage-reports/report-titles")
+        .then().statusCode(400)
+        .body(is("Invalid UUID string: 1234"));
+  }
+
+  @Test
+  public void testPostTitlesBadUUID2() {
+    String tenant = "testlib";
+    RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header("Content-Type", "application/json")
+        .body(new JsonObject().put("titles", new JsonArray()
+            .add(new JsonObject()
+                .put("id", UUID.randomUUID())
+                .put("kbTitleName", "kb title name")
+                .put("kbTitleId", "1234")
+            )
+        ).encode())
+        .post("/eusage-reports/report-titles")
+        .then().statusCode(400)
+        .body(is("Invalid UUID string: 1234"));
+  }
+
+  @Test
+  public void testGetTitleDataNoTenant() {
+    RestAssured.given()
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/title-data")
+        .then().statusCode(400)
+        .header("Content-Type", is("text/plain"))
+        .body(containsString("Tenant must not be null"));
+  }
+
+  @Test
+  public void testGetReportDataNoTenant() {
+    RestAssured.given()
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-data")
+        .then().statusCode(400)
+        .header("Content-Type", is("text/plain"))
+        .body(containsString("Tenant must not be null"));
   }
 
   void tenantOp(TestContext context, String tenant, JsonObject tenantAttributes, String expectedError) {
@@ -548,7 +746,7 @@ public class MainVerticleTest {
   }
 
   @Test
-  public void testFromCounterMissingOkapiUrl(TestContext context) {
+  public void testFromCounterMissingOkapiUrl() {
     String tenant = "testlib";
 
     RestAssured.given()
@@ -564,7 +762,7 @@ public class MainVerticleTest {
   }
 
   @Test
-  public void testFromAgreementNoId(TestContext context) {
+  public void testFromAgreementNoId() {
     String tenant = "testlib";
     RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
@@ -623,25 +821,31 @@ public class MainVerticleTest {
     context.assertEquals(7, titlesAr.size());
     int noDefined = 0;
     int noUndefined = 0;
+    int noGood = 0;
     JsonObject unmatchedTitle = null;
     for (int i = 0; i < titlesAr.size(); i++) {
       if (titlesAr.getJsonObject(i).containsKey("kbTitleName")) {
         noDefined++;
-        context.assertEquals("fake kb title instance name", titlesAr.getJsonObject(i).getString("kbTitleName"));
+        String kbTitleName = titlesAr.getJsonObject(i).getString("kbTitleName");
+        if ("good kb title instance name".equals(kbTitleName)) {
+          noGood++;
+        } else {
+          context.assertEquals("fake kb title instance name", kbTitleName);
+        }
       } else {
         unmatchedTitle = titlesAr.getJsonObject(i);
         context.assertEquals("The dogs journal", unmatchedTitle.getString("counterReportTitle"));
         noUndefined++;
       }
     }
+    context.assertEquals(1, noGood);
     context.assertEquals(6, noDefined);
     context.assertEquals(1, noUndefined);
 
-    unmatchedTitle.put("kbTitleName", "correct kb title name");
-    unmatchedTitle.put("kbTitleId", UUID.randomUUID().toString());
     JsonObject postTitleObject = new JsonObject();
     postTitleObject.put("titles", new JsonArray().add(unmatchedTitle));
 
+    // put without kbTitleId kbTitleName
     RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
@@ -661,6 +865,39 @@ public class MainVerticleTest {
     titlesAr = resObject.getJsonArray("titles");
     context.assertEquals(7, titlesAr.size());
     int noManual = 0;
+    for (int i = 0; i < titlesAr.size(); i++) {
+      if (titlesAr.getJsonObject(i).getBoolean("kbManualMatch")) {
+        context.assertFalse(titlesAr.getJsonObject(i).containsKey("kbTitleId"));
+        context.assertFalse(titlesAr.getJsonObject(i).containsKey("kbTitleName"));
+        noManual++;
+      } else {
+        context.assertTrue(titlesAr.getJsonObject(i).containsKey("kbTitleName"));
+      }
+    }
+    context.assertEquals(1, noManual);
+
+    // put with kbTitleId kbTitleName
+    unmatchedTitle.put("kbTitleName", "correct kb title name");
+    unmatchedTitle.put("kbTitleId", UUID.randomUUID().toString());
+    RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .header("Content-Type", "application/json")
+        .body(postTitleObject.encode())
+        .post("/eusage-reports/report-titles")
+        .then().statusCode(204);
+
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-titles")
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"))
+        .extract();
+    resObject = new JsonObject(response.body().asString());
+    titlesAr = resObject.getJsonArray("titles");
+    context.assertEquals(7, titlesAr.size());
+    noManual = 0;
     for (int i = 0; i < titlesAr.size(); i++) {
       context.assertTrue(titlesAr.getJsonObject(i).containsKey("kbTitleName"));
       if (titlesAr.getJsonObject(i).getBoolean("kbManualMatch")) {
@@ -685,21 +922,6 @@ public class MainVerticleTest {
         .header("Content-Type", is("text/plain"))
         .body(is("title " + n.getString("id") + " matches nothing"));
 
-    // missing kbTitleId
-    n = new JsonObject();
-    n.put("id", UUID.randomUUID());
-    n.put("kbTitleName", "correct kb title name");
-    postTitleObject = new JsonObject();
-    postTitleObject.put("titles", new JsonArray().add(n));
-    RestAssured.given()
-        .header(XOkapiHeaders.TENANT, tenant)
-        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
-        .header("Content-Type", "application/json")
-        .body(postTitleObject.encode())
-        .post("/eusage-reports/report-titles")
-        .then().statusCode(400)
-        .header("Content-Type", is("text/plain"));
-
     // missing id
     n = new JsonObject();
     n.put("kbTitleName", "correct kb title name");
@@ -723,9 +945,19 @@ public class MainVerticleTest {
         .header("Content-Type", is("application/json"))
         .extract();
     resObject = new JsonObject(response.body().asString());
-    context.assertEquals(15, resObject.getJsonArray("data").size());
-    resObject = resObject.getJsonArray("data").getJsonObject(0);
-    context.assertEquals(usageProviderId.toString(), resObject.getString("providerId"));
+    JsonArray items = resObject.getJsonArray("data");
+    context.assertEquals(15, items.size());
+    int noWithPubDate = 0;
+    for (int i = 0; i < items.size(); i++) {
+      JsonObject item = items.getJsonObject(i);
+      context.assertEquals(usageProviderId.toString(), item.getString("providerId"));
+      String pubDate = item.getString("publicationDate");
+      if (pubDate != null) {
+        context.assertEquals(pubDateSample, pubDate);
+        noWithPubDate++;
+      }
+    }
+    context.assertEquals(5, noWithPubDate);
 
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
@@ -744,7 +976,7 @@ public class MainVerticleTest {
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
-        .get("/eusage-reports/report-titles?counterReportId=" + goodCounterReportId.toString())
+        .get("/eusage-reports/report-titles?counterReportId=" + goodCounterReportId)
         .then().statusCode(200)
         .header("Content-Type", is("application/json"))
         .extract();
@@ -762,7 +994,7 @@ public class MainVerticleTest {
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
-        .get("/eusage-reports/report-titles?providerId=" + usageProviderId.toString())
+        .get("/eusage-reports/report-titles?providerId=" + usageProviderId)
         .then().statusCode(200)
         .header("Content-Type", is("application/json"))
         .extract();
@@ -773,7 +1005,7 @@ public class MainVerticleTest {
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
-        .get("/eusage-reports/report-titles?providerId=" + UUID.randomUUID().toString())
+        .get("/eusage-reports/report-titles?providerId=" + UUID.randomUUID())
         .then().statusCode(200)
         .header("Content-Type", is("application/json"))
         .extract();
@@ -882,7 +1114,21 @@ public class MainVerticleTest {
         .header("Content-Type", is("application/json"))
         .extract();
     resObject = new JsonObject(response.body().asString());
-    context.assertEquals(3, resObject.getInteger("reportLinesCreated"));
+    context.assertEquals(4, resObject.getInteger("reportLinesCreated"));
+
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .header("Content-Type", "application/json")
+        .body(new JsonObject()
+            .put("counterReportId", otherCounterReportId)
+            .encode())
+        .post("/eusage-reports/report-titles/from-counter")
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"))
+        .extract();
+    resObject = new JsonObject(response.body().asString());
+    context.assertEquals(13, resObject.getJsonArray("titles").size());
 
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
@@ -892,8 +1138,22 @@ public class MainVerticleTest {
         .header("Content-Type", is("application/json"))
         .extract();
     resObject = new JsonObject(response.body().asString());
-    context.assertEquals(3, resObject.getJsonArray("data").size());
-    log.info("AD: {}", resObject.encodePrettily());
+    items = resObject.getJsonArray("data");
+    context.assertEquals(4, items.size());
+    int noPackages = 0;
+    for (int i = 0; i < items.size(); i++) {
+      String type =  items.getJsonObject(i).getString("type");
+      if ("package".equals(type)) {
+        context.assertEquals(goodPackageId.toString(), items.getJsonObject(i).getString("kbPackageId"));
+        context.assertFalse(items.getJsonObject(i).containsKey("kbTitleId"));
+        noPackages++;
+      } else {
+        context.assertEquals("serial", type);
+        context.assertFalse(items.getJsonObject(i).containsKey("kbPackageId"));
+        context.assertTrue(items.getJsonObject(i).containsKey("kbTitleId"));
+      }
+    }
+    context.assertEquals(1, noPackages);
 
     orderLinesCurrencies.clear();
     orderLinesCurrencies.add("DKK");

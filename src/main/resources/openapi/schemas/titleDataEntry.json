@@ -1,26 +1,30 @@
 {
-  "description": "title data entry",
+  "description": "title data entry from counter reports",
   "type": "object",
   "properties": {
     "id": {
       "type": "string",
       "description": "title data identifier"
     },
-    "reportTitleId": {
+    "titleEntryId": {
       "type": "string",
-      "description": "title identifier"
+      "description": "key to title entries"
     },
     "counterReportId": {
       "type": "string",
       "description": "counter report identifier"
     },
+    "counterReportTitle": {
+      "type": "string",
+      "description": "counter report title"
+    },
     "providerId": {
       "type": "string",
       "description": "usage data provider identifier"
     },
-    "pubYear": {
+    "publicationDate": {
       "type": "string",
-      "description": "Publication year"
+      "description": "Publication date in ISO format YYYY-MM-DD. example 1988-05-17"
     },
     "usageYearMonth": {
       "type": "string",
@@ -41,6 +45,6 @@
   },
   "additionalProperties": false,
   "required": [
-    "id", "titleDataId"
+    "id", "titleEntryId", "counterReportId", "counterReportTitle"
   ]
 }

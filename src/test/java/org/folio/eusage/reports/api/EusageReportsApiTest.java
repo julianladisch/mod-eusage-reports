@@ -34,18 +34,9 @@ public class EusageReportsApiTest {
     EusageReportsApi api = new EusageReportsApi();
     UUID agreementId = UUID.randomUUID();
 
-    api.populateAgreementLine(new JsonObject(), null, agreementId, null)
+    api.populateAgreementLine( null, null, new JsonObject(), agreementId, null)
         .onComplete(context.asyncAssertFailure(x ->
-            context.assertEquals("Missing property resource from agreement " + agreementId, x.getMessage())));
-    api.populateAgreementLine(new JsonObject().put("resource", new JsonObject()), null, agreementId, null)
-        .onComplete(context.asyncAssertFailure(x ->
-            context.assertEquals("Missing property _object from agreement " + agreementId, x.getMessage())));
-    api.populateAgreementLine(new JsonObject().put("resource",new JsonObject().put("_object", new JsonObject())), null, agreementId, null)
-        .onComplete(context.asyncAssertFailure(x ->
-            context.assertEquals("Missing property pti from agreement " + agreementId, x.getMessage())));
-    api.populateAgreementLine(new JsonObject().put("resource",new JsonObject().put("_object", new JsonObject().put("pti", new JsonObject()))), null, agreementId, null)
-        .onComplete(context.asyncAssertFailure(x ->
-            context.assertEquals("Missing property titleInstance from agreement " + agreementId, x.getMessage())));
+            context.assertTrue(x.getMessage().contains("Failed to decode agreement line:"), x.getMessage())));
   }
 
 }

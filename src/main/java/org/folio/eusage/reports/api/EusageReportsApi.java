@@ -13,6 +13,7 @@ import io.vertx.core.parsetools.JsonParser;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.client.HttpRequest;
+import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.codec.BodyCodec;
 import io.vertx.ext.web.openapi.RouterBuilder;
@@ -24,11 +25,14 @@ import io.vertx.sqlclient.RowStream;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Transaction;
 import io.vertx.sqlclient.Tuple;
-import java.util.LinkedList;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.folio.okapi.common.GenericCompositeFuture;
@@ -38,20 +42,24 @@ import org.folio.tlib.TenantInitHooks;
 import org.folio.tlib.postgres.TenantPgPool;
 
 public class EusageReportsApi implements RouterCreator, TenantInitHooks {
-  private final Logger log = LogManager.getLogger(EusageReportsApi.class);
+  private static final Logger log = LogManager.getLogger(EusageReportsApi.class);
 
   private WebClient webClient;
 
   static String titleEntriesTable(TenantPgPool pool) {
-    return pool.getSchema() + ".te_table";
+    return pool.getSchema() + ".title_entries";
+  }
+
+  static String packageEntriesTable(TenantPgPool pool) {
+    return pool.getSchema() + ".package_entries";
   }
 
   static String titleDataTable(TenantPgPool pool) {
-    return pool.getSchema() + ".td_table";
+    return pool.getSchema() + ".title_data";
   }
 
-  static String reportDataTable(TenantPgPool pool) {
-    return pool.getSchema() + ".rd_table";
+  static String agreementEntriesTable(TenantPgPool pool) {
+    return pool.getSchema() + ".agreement_entries";
   }
 
   static void failHandler(int statusCode, RoutingContext ctx, Throwable e) {
@@ -68,13 +76,24 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     return requestParameter == null ? null : requestParameter.getString();
   }
 
+  private static JsonObject copyWithoutNulls(JsonObject obj) {
+    JsonObject n = new JsonObject();
+    obj.getMap().forEach((key, value) -> {
+      if (value != null) {
+        n.put(key, value);
+      }
+    });
+    return n;
+  }
+
+
   private static void endHandler(RoutingContext ctx, SqlConnection sqlConnection, Transaction tx) {
     ctx.response().write("] }");
     ctx.response().end();
     tx.commit().compose(x -> sqlConnection.close());
   }
 
-  private void endStream(RowStream<Row> stream, RoutingContext ctx,
+  private static void endStream(RowStream<Row> stream, RoutingContext ctx,
                          SqlConnection sqlConnection, Transaction tx) {
     stream.endHandler(end -> endHandler(ctx, sqlConnection, tx));
     stream.exceptionHandler(e -> {
@@ -83,57 +102,62 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     });
   }
 
-  Future<Void> getReportTitles(Vertx vertx, RoutingContext ctx) {
-    RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
-    String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
-    String counterReportId = stringOrNull(params.queryParameter("counterReportId"));
-    String providerId = stringOrNull(params.queryParameter("providerId"));
+  static Future<Void> streamResult(RoutingContext ctx, TenantPgPool pool, String qry,
+                                   String property, Function<Row, JsonObject> handler) {
+    return pool.getConnection().compose(sqlConnection ->
+        sqlConnection.prepare(qry)
+            .<Void>compose(pq ->
+                sqlConnection.begin().compose(tx -> {
+                  ctx.response().setChunked(true);
+                  ctx.response().putHeader("Content-Type", "application/json");
+                  ctx.response().write("{ \"" + property + "\" : [");
+                  AtomicBoolean first = new AtomicBoolean(true);
+                  RowStream<Row> stream = pq.createStream(50);
+                  stream.handler(row -> {
+                    if (!first.getAndSet(false)) {
+                      ctx.response().write(",");
+                    }
+                    JsonObject response = handler.apply(row);
+                    ctx.response().write(copyWithoutNulls(response).encode());
+                  });
+                  endStream(stream, ctx, sqlConnection, tx);
+                  return Future.succeededFuture();
+                })
+            ).onFailure(x -> sqlConnection.close())
+    );
+  }
 
-    TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-    return pool.getConnection()
-        .compose(sqlConnection -> {
-          String qry = "SELECT DISTINCT ON (" + titleEntriesTable(pool) + ".id) * FROM "
-              + titleEntriesTable(pool);
-          if (counterReportId != null) {
-            qry = qry + " INNER JOIN " + titleDataTable(pool)
-                + " ON reportTitleId = " + titleEntriesTable(pool) + ".id"
-                + " WHERE counterReportId = '" + UUID.fromString(counterReportId) + "'";
-          } else if (providerId != null) {
-            qry = qry + " INNER JOIN " + titleDataTable(pool)
-                + " ON reportTitleId = " + titleEntriesTable(pool) + ".id"
-                + " WHERE providerId = '" + UUID.fromString(providerId) + "'";
-          }
-          return sqlConnection.prepare(qry)
-              .<Void>compose(pq ->
-                  sqlConnection.begin().compose(tx -> {
-                    ctx.response().setChunked(true);
-                    ctx.response().putHeader("Content-Type", "application/json");
-                    ctx.response().write("{ \"titles\" : [");
-                    AtomicInteger offset = new AtomicInteger();
-                    RowStream<Row> stream = pq.createStream(50);
-                    stream.handler(row -> {
-                      if (offset.incrementAndGet() > 1) {
-                        ctx.response().write(",");
-                      }
-                      JsonObject response = new JsonObject()
-                          .put("id", row.getUUID(0))
-                          .put("counterReportTitle", row.getString(1));
-                      String titleName = row.getString(3);
-                      if (titleName != null) {
-                        response.put("kbTitleName", titleName)
-                            .put("kbTitleId", row.getUUID(4));
-                      }
-                      Boolean kbManualMatch = row.getBoolean(5);
-                      if (kbManualMatch != null) {
-                        response.put("kbManualMatch", kbManualMatch);
-                      }
-                      ctx.response().write(response.encode());
-                    });
-                    endStream(stream, ctx, sqlConnection, tx);
-                    return Future.succeededFuture();
-                  })
-              ).onFailure(x -> sqlConnection.close());
-        });
+  Future<Void> getReportTitles(Vertx vertx, RoutingContext ctx) {
+    try {
+      RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+      String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+      String counterReportId = stringOrNull(params.queryParameter("counterReportId"));
+      String providerId = stringOrNull(params.queryParameter("providerId"));
+
+      TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
+      String qry = "SELECT DISTINCT ON (" + titleEntriesTable(pool) + ".id) * FROM "
+          + titleEntriesTable(pool);
+      if (counterReportId != null) {
+        qry = qry + " INNER JOIN " + titleDataTable(pool)
+            + " ON titleEntryId = " + titleEntriesTable(pool) + ".id"
+            + " WHERE counterReportId = '" + UUID.fromString(counterReportId) + "'";
+      } else if (providerId != null) {
+        qry = qry + " INNER JOIN " + titleDataTable(pool)
+            + " ON titleEntryId = " + titleEntriesTable(pool) + ".id"
+            + " WHERE providerId = '" + UUID.fromString(providerId) + "'";
+      }
+      return streamResult(ctx, pool, qry, "titles", row ->
+          new JsonObject()
+              .put("id", row.getUUID(0))
+              .put("counterReportTitle", row.getString(1))
+              .put("kbTitleName", row.getString(2))
+              .put("kbTitleId", row.getUUID(3))
+              .put("kbManualMatch", row.getBoolean(4))
+      );
+    } catch (Exception e) {
+      log.error(e.getMessage(), e);
+      return Future.failedFuture(e);
+    }
   }
 
   Future<Void> postReportTitles(Vertx vertx, RoutingContext ctx) {
@@ -149,7 +173,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             final JsonObject titleEntry = titles.getJsonObject(i);
             UUID id = UUID.fromString(titleEntry.getString("id"));
             String kbTitleName = titleEntry.getString("kbTitleName");
-            UUID kbTitleId = UUID.fromString(titleEntry.getString("kbTitleId"));
+            String kbTitleIdStr = titleEntry.getString("kbTitleId");
             future = future.compose(x ->
                 sqlConnection.preparedQuery("UPDATE " + titleEntriesTable(pool)
                     + " SET"
@@ -157,7 +181,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                     + " kbTitleId = $3,"
                     + " kbManualMatch = TRUE"
                     + " WHERE id = $1")
-                    .execute(Tuple.of(id, kbTitleName, kbTitleId))
+                    .execute(Tuple.of(id, kbTitleName, kbTitleIdStr == null
+                        ? null : UUID.fromString(kbTitleIdStr)))
                     .compose(rowSet -> {
                       if (rowSet.rowCount() == 0) {
                         return Future.failedFuture("title " + id + " matches nothing");
@@ -165,7 +190,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                       return Future.succeededFuture();
                     }));
           }
-          return future.eventually(x -> sqlConnection.close());
+          return future
+              .eventually(x -> sqlConnection.close())
+              .onFailure(x -> log.error(x.getMessage(), x));
         })
         .compose(x -> {
           ctx.response().setStatusCode(204);
@@ -175,44 +202,39 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Void> getTitleData(Vertx vertx, RoutingContext ctx) {
-    RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
-    String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
-
-    TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-    return pool.getConnection().compose(sqlConnection -> sqlConnection
-        .prepare("SELECT * FROM " + titleDataTable(pool))
-        .<Void>compose(pq ->
-            sqlConnection.begin().compose(tx -> {
-              ctx.response().setChunked(true);
-              ctx.response().putHeader("Content-Type", "application/json");
-              ctx.response().write("{ \"data\" : [");
-              AtomicInteger offset = new AtomicInteger();
-              RowStream<Row> stream = pq.createStream(50);
-              stream.handler(row -> {
-                if (offset.incrementAndGet() > 1) {
-                  ctx.response().write(",");
-                }
-                JsonObject obj = new JsonObject()
-                    .put("id", row.getUUID(0))
-                    .put("reportTitleId", row.getUUID(1))
-                    .put("counterReportId", row.getUUID(2))
-                    .put("providerId", row.getUUID(3))
-                    .put("pubYear", row.getString(4))
-                    .put("usageDateRange", row.getString(5))
-                    .put("uniqueAccessCount", row.getInteger(6))
-                    .put("totalAccessCount", row.getInteger(7))
-                    .put("openAccess", row.getBoolean(8));
-                ctx.response().write(obj.encode());
-              });
-              endStream(stream, ctx, sqlConnection, tx);
-              return Future.succeededFuture();
-            })
-        )
-        .onFailure(x -> sqlConnection.close()));
+    try {
+      RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+      String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+      TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
+      String qry = "SELECT * FROM " + titleDataTable(pool);
+      return streamResult(ctx, pool, qry, "data", row -> {
+            JsonObject obj = new JsonObject()
+                .put("id", row.getUUID(0))
+                .put("titleEntryId", row.getUUID(1))
+                .put("counterReportId", row.getUUID(2))
+                .put("counterReportTitle", row.getString(3))
+                .put("providerId", row.getUUID(4))
+                .put("usageDateRange", row.getString(6))
+                .put("uniqueAccessCount", row.getInteger(7))
+                .put("totalAccessCount", row.getInteger(8))
+                .put("openAccess", row.getBoolean(9));
+            LocalDate publicationDate = row.getLocalDate(5);
+            if (publicationDate != null) {
+              obj.put("publicationDate",
+                  publicationDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
+            }
+            return obj;
+          }
+      );
+    } catch (Exception e) {
+      log.error(e.getMessage(), e);
+      return Future.failedFuture(e);
+    }
   }
 
   Future<Void> postFromCounter(Vertx vertx, RoutingContext ctx) {
     return populateCounterReportTitles(vertx, ctx)
+        .onFailure(x -> log.error(x.getMessage(), x))
         .compose(x -> {
           if (Boolean.TRUE.equals(x)) {
             return getReportTitles(vertx, ctx);
@@ -222,57 +244,159 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
-  Future<Tuple> ermLookup(RoutingContext ctx, String identifier) {
-    // assuming identifier only has unreserved characters
-    String uri = "/erm/resource?match=identifiers.identifier.value&term=" + identifier;
-    Future<JsonArray> future = getRequest(webClient, ctx, uri)
-        .send()
-        .compose(res -> {
-          if (res.statusCode() != 200) {
-            return Future.failedFuture(uri + " returned " + res.statusCode());
-          }
-          JsonArray ar = res.bodyAsJsonArray();
-          return Future.succeededFuture(ar);
-        });
-    return future.compose(ar -> {
-      if (ar.isEmpty()) {
-        return Future.succeededFuture(null);
-      }
-      JsonObject resource = ar.getJsonObject(0);
-      UUID titleId = UUID.fromString(resource.getString("id"));
-      return Future.succeededFuture(Tuple.of(titleId, resource.getString("name")));
-    });
+  static Tuple parseErmTitle(JsonObject resource) {
+    UUID titleId = UUID.fromString(resource.getString("id"));
+    return Tuple.of(titleId, resource.getString("name"));
   }
 
-  Future<UUID> upsertTeEntry(TenantPgPool pool, SqlConnection con, RoutingContext ctx,
-                             String counterReportTitle, String printIssn, String onlineIssn) {
+  Future<Tuple> ermTitleLookup(RoutingContext ctx, String identifier) {
+    // assuming identifier only has unreserved characters
+    // TODO .. this will match any type of identifier.
+    // what if there's more than one hit?
+    String uri = "/erm/resource?match=identifiers.identifier.value&term=" + identifier;
+    return getRequestSend(ctx, uri)
+        .map(res -> {
+          JsonArray ar = res.bodyAsJsonArray();
+          return ar.isEmpty() ? null : parseErmTitle(ar.getJsonObject(0));
+        });
+  }
+
+  Future<Tuple> ermTitleLookup(RoutingContext ctx, UUID id) {
+    String uri = "/erm/resource/" + id;
+    return getRequestSend(ctx, uri)
+        .map(res -> parseErmTitle(res.bodyAsJsonObject()));
+  }
+
+  Future<List<UUID>> ermPackageContentLookup(RoutingContext ctx, UUID id) {
+    // example: /erm/packages/dfb61870-1252-4ece-8f75-db02faf4ab82/content
+    String uri = "/erm/packages/" + id + "/content";
+    return getRequestSend(ctx, uri)
+        .map(res -> {
+          JsonArray ar = res.bodyAsJsonArray();
+          List<UUID> list = new ArrayList<>();
+          for (int i = 0; i < ar.size(); i++) {
+            UUID kbTitleId = UUID.fromString(ar.getJsonObject(i).getJsonObject("pti")
+                .getJsonObject("titleInstance").getString("id"));
+            list.add(kbTitleId);
+          }
+          return list;
+        });
+  }
+
+  Future<UUID> updateTitleEntryByKbTitle(TenantPgPool pool, SqlConnection con, UUID kbTitleId,
+                                         String counterReportTitle, String printIssn,
+                                         String onlineIssn) {
+    if (kbTitleId == null) {
+      return Future.succeededFuture(null);
+    }
+    return con.preparedQuery("SELECT id FROM " + titleEntriesTable(pool)
+        + " WHERE kbTitleId = $1")
+        .execute(Tuple.of(kbTitleId)).compose(res -> {
+          if (res.iterator().hasNext()) {
+            Row row = res.iterator().next();
+            UUID id = row.getUUID(0);
+            return con.preparedQuery("UPDATE " + titleEntriesTable(pool)
+                + " SET"
+                + " counterReportTitle = $2,"
+                + " printISSN = $3,"
+                + " onlineISSN = $4"
+                + " WHERE id = $1")
+                .execute(Tuple.of(id, counterReportTitle, printIssn, onlineIssn))
+                .map(id);
+          }
+          return Future.succeededFuture(null);
+        });
+  }
+
+  Future<UUID> upsertTitleEntryCounterReport(TenantPgPool pool, SqlConnection con,
+                                             RoutingContext ctx, String counterReportTitle,
+                                             String printIssn, String onlineIssn) {
     return con.preparedQuery("SELECT id FROM " + titleEntriesTable(pool)
         + " WHERE counterReportTitle = $1")
         .execute(Tuple.of(counterReportTitle))
         .compose(res1 -> {
           if (res1.iterator().hasNext()) {
-            return Future.succeededFuture(res1.iterator().next().getUUID(0));
+            Row row = res1.iterator().next();
+            return Future.succeededFuture(row.getUUID(0));
           }
-          final String match = onlineIssn;
-          return ermLookup(ctx, match).compose(erm -> {
+          return ermTitleLookup(ctx, onlineIssn).compose(erm -> {
             UUID kbTitleId = erm != null ? erm.getUUID(0) : null;
             String kbTitleName = erm != null ? erm.getString(1) : null;
-            return con.preparedQuery("INSERT INTO " + titleEntriesTable(pool)
-                + "(id, counterReportTitle, matchCriteria,"
-                + " kbTitleName, kbTitleId,"
-                + " kbManualMatch, printISSN, onlineISSN)"
-                + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
-                + " ON CONFLICT (counterReportTitle) DO NOTHING")
-                .execute(Tuple.of(UUID.randomUUID(), counterReportTitle, onlineIssn,
-                    kbTitleName, kbTitleId,
-                    false, printIssn, onlineIssn))
-                .compose(x ->
-                    con.preparedQuery("SELECT id FROM " + titleEntriesTable(pool)
-                        + " WHERE counterReportTitle = $1")
-                        .execute(Tuple.of(counterReportTitle))
-                        .map(res2 -> res2.iterator().next().getUUID(0))
-                );
+            return updateTitleEntryByKbTitle(pool, con, kbTitleId,
+                counterReportTitle, printIssn, onlineIssn)
+                .compose(id -> {
+                  if (id != null) {
+                    return Future.succeededFuture(id);
+                  }
+                  return con.preparedQuery(" INSERT INTO " + titleEntriesTable(pool)
+                      + "(id, counterReportTitle,"
+                      + " kbTitleName, kbTitleId,"
+                      + " kbManualMatch, printISSN, onlineISSN)"
+                      + " VALUES ($1, $2, $3, $4, $5, $6, $7)"
+                      + " ON CONFLICT (counterReportTitle) DO NOTHING")
+                      .execute(Tuple.of(UUID.randomUUID(), counterReportTitle,
+                          kbTitleName, kbTitleId,
+                          false, printIssn, onlineIssn))
+                      .compose(x ->
+                          con.preparedQuery("SELECT id FROM " + titleEntriesTable(pool)
+                              + " WHERE counterReportTitle = $1")
+                              .execute(Tuple.of(counterReportTitle))
+                              .map(res2 -> res2.iterator().next().getUUID(0)));
+                });
           });
+        });
+  }
+
+  Future<Void> createTitleFromAgreement(TenantPgPool pool, SqlConnection con,
+                                        UUID kbTitleId, RoutingContext ctx) {
+    if (kbTitleId == null) {
+      return Future.succeededFuture();
+    }
+    return con.preparedQuery("SELECT * FROM " + titleEntriesTable(pool)
+        + " WHERE kbTitleId = $1")
+        .execute(Tuple.of(kbTitleId))
+        .compose(res -> {
+          if (res.iterator().hasNext()) {
+            return Future.succeededFuture();
+          }
+          return ermTitleLookup(ctx, kbTitleId).compose(erm -> {
+            String kbTitleName = erm.getString(1);
+            return con.preparedQuery("INSERT INTO " + titleEntriesTable(pool)
+                + "(id, kbTitleName, kbTitleId, kbManualMatch)"
+                + " VALUES ($1, $2, $3, $4)")
+                .execute(Tuple.of(UUID.randomUUID(), kbTitleName, kbTitleId, false))
+                .mapEmpty();
+          });
+        });
+  }
+
+  Future<Void> createPackageFromAgreement(TenantPgPool pool, SqlConnection con, UUID kbPackageId,
+                                          String kbPackageName, RoutingContext ctx) {
+    if (kbPackageId == null) {
+      return Future.succeededFuture();
+    }
+    return con.preparedQuery("SELECT * FROM " + packageEntriesTable(pool)
+        + " WHERE kbPackageId = $1")
+        .execute(Tuple.of(kbPackageId))
+        .compose(res -> {
+          if (res.iterator().hasNext()) {
+            return Future.succeededFuture();
+          }
+          return ermPackageContentLookup(ctx, kbPackageId)
+              .compose(list -> {
+                Future<Void> future = Future.succeededFuture();
+                for (UUID kbTitleId : list) {
+                  future = future.compose(x -> createTitleFromAgreement(pool, con, kbTitleId, ctx));
+                  future = future.compose(x ->
+                    con.preparedQuery("INSERT INTO " + packageEntriesTable(pool)
+                        + "(kbPackageId, kbPackageName, kbTitleId)"
+                        + "VALUES ($1, $2, $3)")
+                        .execute(Tuple.of(kbPackageId, kbPackageName, kbTitleId))
+                        .mapEmpty()
+                  );
+                }
+                return future;
+              });
         });
   }
 
@@ -289,18 +413,21 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             .eventually(x -> con.close()));
   }
 
-  static Future<Void> insertTdEntry(TenantPgPool pool, SqlConnection con, UUID reportTitleId,
-                                    UUID counterReportId, UUID providerId, String usageDateRange,
+  static Future<Void> insertTdEntry(TenantPgPool pool, SqlConnection con, UUID titleEntryId,
+                                    UUID counterReportId, String counterReportTitle,
+                                    UUID providerId, String publicationDate,
+                                    String usageDateRange,
                                     int uniqueAccessCount, int totalAccessCount) {
+    LocalDate localDate = publicationDate != null ? LocalDate.parse(publicationDate) : null;
     return con.preparedQuery("INSERT INTO " + titleDataTable(pool)
-        + "(id, reportTitleId,"
-        + " counterReportId, providerId,"
-        + " pubYear, usageDateRange,"
+        + "(id, titleEntryId,"
+        + " counterReportId, counterReportTitle, providerId,"
+        + " publicationDate, usageDateRange,"
         + " uniqueAccessCount, totalAccessCount, openAccess)"
-        + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)")
-        .execute(Tuple.of(UUID.randomUUID(), reportTitleId,
-            counterReportId, providerId,
-            "", usageDateRange,
+        + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)")
+        .execute(Tuple.of(UUID.randomUUID(), titleEntryId,
+            counterReportId, counterReportTitle, providerId,
+            localDate, usageDateRange,
             uniqueAccessCount, totalAccessCount, false))
         .mapEmpty();
   }
@@ -357,6 +484,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         if ("PRINT_ISBN".equals(type) || "Print_ISBN".equals(type)) {
           ret.put("printISSN", value);
         }
+        if ("Publication_Date".equals(type)) {
+          ret.put(type, value);
+        }
       }
     }
     return ret;
@@ -379,6 +509,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     final JsonObject identifiers = getIssnIdentifiers(reportItem);
     final String onlineIssn = identifiers.getString("onlineISSN");
     final String printIssn = identifiers.getString("printISSN");
+    final String publicationDate = identifiers.getString("Publication_Date");
     final String counterReportTitle = reportItem.getString(altKey(reportItem,
         "itemName", "Title"));
     log.debug("handleReport title={} match={}", counterReportTitle, onlineIssn);
@@ -390,23 +521,38 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       final int totalAccessCount = getTotalCount(reportItem, "Total_Item_Requests");
       final int uniqueAccessCount = getTotalCount(reportItem, "Unique_Item_Requests");
       future = future.compose(x ->
-          upsertTeEntry(pool, con, ctx, counterReportTitle, printIssn, onlineIssn)
-              .compose(reportTitleId -> insertTdEntry(pool, con, reportTitleId, counterReportId,
-                  providerId, usageDateRange, uniqueAccessCount, totalAccessCount))
+          upsertTitleEntryCounterReport(pool, con, ctx, counterReportTitle,
+              printIssn, onlineIssn)
+              .compose(titleEntryId -> insertTdEntry(pool, con, titleEntryId, counterReportId,
+                  counterReportTitle,  providerId, publicationDate, usageDateRange,
+                  uniqueAccessCount, totalAccessCount))
       );
       return future.compose(x -> tx.commit());
     }).eventually(x -> con.close()));
   }
 
-  static HttpRequest<Buffer> getRequest(WebClient webClient,
-                                        RoutingContext ctx, String uri) {
+  HttpRequest<Buffer> getRequest(RoutingContext ctx, String uri) {
     RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
     final String okapiUrl = stringOrNull(params.headerParameter(XOkapiHeaders.URL));
     final String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
     final String token = stringOrNull(params.headerParameter(XOkapiHeaders.TOKEN));
+    log.info("GET {} request", uri);
     return webClient.request(HttpMethod.GET, new RequestOptions().setAbsoluteURI(okapiUrl + uri))
         .putHeader(XOkapiHeaders.TOKEN, token)
         .putHeader(XOkapiHeaders.TENANT, tenant);
+  }
+
+  Future<HttpResponse<Buffer>> getRequestSend(RoutingContext ctx, String uri, int other) {
+    return getRequest(ctx, uri).send().map(res -> {
+      if (res.statusCode() != 200 && res.statusCode() != other) {
+        throw new RuntimeException("GET " + uri + " returned status code " + res.statusCode());
+      }
+      return res;
+    });
+  }
+
+  Future<HttpResponse<Buffer>> getRequestSend(RoutingContext ctx, String uri) {
+    return getRequestSend(ctx, uri, -1);
   }
 
   Future<Boolean> populateCounterReportTitles(Vertx vertx, RoutingContext ctx) {
@@ -422,7 +568,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     JsonParser parser = JsonParser.newParser();
     AtomicBoolean objectMode = new AtomicBoolean(false);
     TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-    List<Future<Void>> futures = new LinkedList<>();
+    List<Future<Void>> futures = new ArrayList<>();
 
     final String uri = "/counter-reports" + (id != null ? "/" + id : "");
     AtomicInteger pathSize = new AtomicInteger(id != null ? 1 : 0);
@@ -465,11 +611,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       promise.tryFail("GET " + uri + " returned bad JSON: " + x.getMessage());
     });
     parser.endHandler(e -> {
-      log.error("parser.endHandler");
       GenericCompositeFuture.all(futures)
           .onComplete(x -> promise.handle(x.mapEmpty()));
     });
-    return getRequest(webClient, ctx, uri)
+    return getRequest(ctx, uri)
         .as(BodyCodec.jsonStream(parser))
         .send()
         .compose(res -> {
@@ -484,103 +629,53 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Void> getReportData(Vertx vertx, RoutingContext ctx) {
-    RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
-    String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+    try {
+      RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+      String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
 
-    TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-    return pool.getConnection()
-        .compose(sqlConnection ->
-            sqlConnection.prepare("SELECT * FROM " + reportDataTable(pool))
-                .<Void>compose(pq ->
-                    sqlConnection.begin().compose(tx -> {
-                      ctx.response().setChunked(true);
-                      ctx.response().putHeader("Content-Type", "application/json");
-                      ctx.response().write("{ \"data\" : [");
-                      AtomicInteger offset = new AtomicInteger();
-                      RowStream<Row> stream = pq.createStream(50);
-                      stream.handler(row -> {
-                        if (offset.incrementAndGet() > 1) {
-                          ctx.response().write(",");
-                        }
-                        JsonObject obj = new JsonObject()
-                            .put("id", row.getUUID(0))
-                            .put("type", row.getString(2))
-                            .put("agreementLineId", row.getUUID(4))
-                            .put("encumberedCost", row.getNumeric(5))
-                            .put("invoicedCost", row.getNumeric(6));
-                        UUID titleDataId = row.getUUID(1);
-                        if (titleDataId != null) {
-                          obj.put("titleDataId", titleDataId);
-                        }
-                        String counterReportTitle = row.getString(3);
-                        if (counterReportTitle != null) {
-                          obj.put("counterReportTitle", counterReportTitle);
-                        }
-                        ctx.response().write(obj.encode());
-                      });
-                      endStream(stream, ctx, sqlConnection, tx);
-                      return Future.succeededFuture();
-                    })
-                )
-                .onFailure(x -> sqlConnection.close())
-        );
+      TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
+      String qry = "SELECT * FROM " + agreementEntriesTable(pool);
+      return streamResult(ctx, pool, qry, "data", row ->
+          new JsonObject()
+              .put("id", row.getUUID(0))
+              .put("kbTitleId", row.getUUID(1))
+              .put("kbPackageId", row.getUUID(2))
+              .put("type", row.getString(3))
+              .put("agreementId", row.getUUID(4))
+              .put("agreementLineId", row.getUUID(5))
+              .put("poLineId", row.getUUID(6))
+              .put("encumberedCost", row.getNumeric(7))
+              .put("invoicedCost", row.getNumeric(8))
+              .put("fiscalYearRange", row.getString(9))
+              .put("subscriptionDateRange", row.getString(10))
+              .put("coverageDateRanges", row.getString(11))
+      );
+    } catch (Exception e) {
+      log.error(e.getMessage(), e);
+      return Future.failedFuture(e);
+    }
   }
 
   Future<Boolean> agreementExists(RoutingContext ctx, UUID agreementId) {
     final String uri = "/erm/sas/" + agreementId;
-    return getRequest(webClient, ctx, uri)
-        .send()
-        .compose(res -> {
-          if (res.statusCode() == 404) {
-            return Future.succeededFuture(false);
-          }
-          if (res.statusCode() != 200) {
-            return Future.failedFuture("GET " + uri + " returned status code " + res.statusCode());
-          }
-          return Future.succeededFuture(true);
-        });
-  }
-
-  Future<Tuple> lookupTitleFromKbTitle(TenantPgPool pool, UUID kbTitleId) {
-    return pool.preparedQuery("SELECT * FROM " + titleEntriesTable(pool)
-        + " WHERE kbTitleId = $1")
-        .execute(Tuple.of(kbTitleId))
-        .compose(res -> {
-          if (res.iterator().hasNext()) {
-            Row row = res.iterator().next();
-            return Future.succeededFuture(Tuple.of(
-                row.getUUID(0), row.getString(1)));
-          }
-          return Future.succeededFuture();
-        });
+    return getRequestSend(ctx, uri, 404)
+        .map(res -> res.statusCode() != 404);
   }
 
   Future<JsonObject> lookupOrderLine(UUID poLineId, RoutingContext ctx) {
     String uri = "/orders/order-lines/" + poLineId;
-    return getRequest(webClient, ctx, uri)
-        .send()
-        .compose(res -> {
-          if (res.statusCode() != 200) {
-            return Future.failedFuture("GET " + uri + " returned status code " + res.statusCode());
-          }
-          return Future.succeededFuture(res.bodyAsJsonObject());
-        });
+    return getRequestSend(ctx, uri)
+        .map(res -> res.bodyAsJsonObject());
   }
 
-  Future<JsonArray> lookupInvoiceLine(UUID poLineId, RoutingContext ctx) {
+  Future<JsonObject> lookupInvoiceLine(UUID poLineId, RoutingContext ctx) {
     String uri = "/invoice-storage/invoice-lines?query=poLineId%3D%3D" + poLineId;
-    return getRequest(webClient, ctx, uri)
-        .send()
-        .compose(res -> {
-          if (res.statusCode() != 200) {
-            return Future.failedFuture("GET " + uri + " returned status code " + res.statusCode());
-          }
-          return Future.succeededFuture(res.bodyAsJsonArray());
-        });
+    return getRequestSend(ctx, uri)
+        .map(res -> res.bodyAsJsonObject());
   }
 
   Future<JsonObject> lookupPoLine(JsonArray poLinesAr, RoutingContext ctx) {
-    List<Future<Void>> futures = new LinkedList<>();
+    List<Future<Void>> futures = new ArrayList<>();
 
     JsonObject totalCost = new JsonObject();
     totalCost.put("encumberedCost", 0.0);
@@ -600,7 +695,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             totalCost.getDouble("encumberedCost") + cost.getDouble("listUnitPriceElectronic"));
         return Future.succeededFuture();
       }));
-      futures.add(lookupInvoiceLine(poLineId, ctx).compose(invoices -> {
+      futures.add(lookupInvoiceLine(poLineId, ctx).compose(invoiceResponse -> {
+        JsonArray invoices = invoiceResponse.getJsonArray("invoiceLines");
         for (int j = 0; j < invoices.size(); j++) {
           JsonObject invoiceLine = invoices.getJsonObject(j);
           Double thisTotal = invoiceLine.getDouble("total");
@@ -608,51 +704,79 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             totalCost.put("invoicedCost", thisTotal + totalCost.getDouble("invoicedCost"));
           }
         }
+        totalCost.put("subscriptionDateRange", getRanges(invoices,
+            "subscriptionStart", "subscriptionEnd"));
         return Future.succeededFuture();
       }));
     }
     return GenericCompositeFuture.all(futures).map(totalCost);
   }
 
-  Future<Void> populateAgreementLine(JsonObject agreementLine, TenantPgPool pool, UUID agreementId,
+  static String getRanges(JsonArray ar, String startProp, String endProp) {
+    if (ar == null) {
+      return null;
+    }
+    for (int i = 0; i < ar.size(); i++) {
+      JsonObject o = ar.getJsonObject(i);
+      String start = o.getString(startProp);
+      String end = o.getString(endProp);
+      // only one range for now..
+      if (start != null) {
+        return "[" + start + "," + (end != null ? end : "today") + "]";
+      }
+    }
+    return null;
+  }
+
+  Future<Void> populateAgreementLine(TenantPgPool pool, SqlConnection con,
+                                     JsonObject agreementLine, UUID agreementId,
                                      RoutingContext ctx) {
-    JsonObject resourceObject = agreementLine.getJsonObject("resource");
-    if (resourceObject == null) {
-      return Future.failedFuture("Missing property resource from agreement " + agreementId);
+    try {
+      JsonArray poLines = agreementLine.getJsonArray("poLines");
+      UUID poLineId = poLines.isEmpty()
+          ? null : UUID.fromString(poLines.getJsonObject(0).getString("poLineId"));
+      final Future<JsonObject> future = lookupPoLine(poLines, ctx);
+      final UUID agreementLineId = UUID.fromString(agreementLine.getString("id"));
+      JsonObject resourceObject = agreementLine.getJsonObject("resource");
+      JsonObject underScoreObject = resourceObject.getJsonObject("_object");
+      JsonArray coverage = resourceObject.getJsonArray("coverage");
+      String coverageDateRanges = getRanges(coverage, "startDate", "endDate");
+      final String resourceClass = resourceObject.getString("class");
+      JsonObject titleInstance = null;
+      if (!resourceClass.equals("org.olf.kb.Pkg")) {
+        JsonObject pti = underScoreObject.getJsonObject("pti");
+        titleInstance = pti.getJsonObject("titleInstance");
+      }
+      String type = titleInstance != null
+          ? titleInstance.getJsonObject("publicationType").getString("value") : "package";
+      UUID kbTitleId = titleInstance != null
+          ? UUID.fromString(titleInstance.getString("id")) : null;
+      UUID kbPackageId = titleInstance == null
+          ? UUID.fromString(resourceObject.getString("id")) : null;
+      String kbPackageName = titleInstance == null
+          ? resourceObject.getString("name") : null;
+      return future.compose(cost -> createTitleFromAgreement(pool, con, kbTitleId, ctx)
+              .compose(x -> createPackageFromAgreement(pool, con, kbPackageId, kbPackageName, ctx))
+              .compose(x -> {
+                UUID id = UUID.randomUUID();
+                Number encumberedCost = cost.getDouble("encumberedCost");
+                Number invoicedCost = cost.getDouble("invoicedCost");
+                String subScriptionDateRange = cost.getString("subscriptionDateRange");
+                return con.preparedQuery("INSERT INTO " + agreementEntriesTable(pool)
+                    + "(id, kbTitleId, kbPackageId, type,"
+                    + " agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,"
+                    + " subscriptionDateRange, coverageDateRanges)"
+                    + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)")
+                    .execute(Tuple.of(id, kbTitleId, kbPackageId, type,
+                        agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,
+                        subScriptionDateRange, coverageDateRanges))
+                    .mapEmpty();
+              })
+      );
+    } catch (Exception e) {
+      log.error("Failed to decode agreementLine: {}", e.getMessage(), e);
+      return Future.failedFuture("Failed to decode agreement line: " + e.getMessage());
     }
-    JsonObject underScoreObject = resourceObject.getJsonObject("_object");
-    if (underScoreObject == null) {
-      return Future.failedFuture("Missing property _object from agreement " + agreementId);
-    }
-    JsonObject pti = underScoreObject.getJsonObject("pti");
-    if (pti == null) {
-      return Future.failedFuture("Missing property pti from agreement " + agreementId);
-    }
-    JsonObject titleInstance = pti.getJsonObject("titleInstance");
-    if (titleInstance == null) {
-      return Future.failedFuture("Missing property titleInstance from agreement " + agreementId);
-    }
-    UUID agreementLineId = UUID.fromString(agreementLine.getString("id"));
-    UUID kbTitleId = UUID.fromString(titleInstance.getString("id"));
-    String type = titleInstance.getJsonObject("publicationType").getString("value");
-    return lookupPoLine(agreementLine.getJsonArray("poLines"), ctx)
-        .compose(cost ->
-            lookupTitleFromKbTitle(pool, kbTitleId)
-                .compose(tuple -> {
-                  UUID id = UUID.randomUUID();
-                  UUID titleDataId = tuple != null ? tuple.getUUID(0) : null;
-                  String counterReportTitle = tuple != null ? tuple.getString(1) : null;
-                  Number encumberedCost = cost.getDouble("encumberedCost");
-                  Number invoicedCost = cost.getDouble("invoicedCost");
-                  return pool.preparedQuery("INSERT INTO " + reportDataTable(pool)
-                      + "(id, titleDataId, type, counterReportTitle, agreementLineId,"
-                      + " encumberedCost, invoicedCost)"
-                      + " VALUES ($1, $2, $3, $4, $5, $6, $7)")
-                      .execute(Tuple.of(id, titleDataId, type, counterReportTitle, agreementLineId,
-                          encumberedCost, invoicedCost))
-                      .mapEmpty();
-                })
-        );
   }
 
   Future<Integer> populateAgreement(Vertx vertx, RoutingContext ctx) {
@@ -663,33 +787,30 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       return Future.failedFuture("Missing agreementId property");
     }
     TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-    final UUID agreementId = UUID.fromString(agreementIdStr);
-    return agreementExists(ctx, agreementId)
-        .compose(exists -> {
-          if (!exists) {
-            return Future.succeededFuture(null);
-          }
-          // expand agreement to get agreement lines, now that we know the agreement ID is good.
-          // the call below returns 500 with a stacktrace if agreement ID is no good.
-          String uri = "/erm/entitlements?filters=owner%3D" + agreementId;
-          return getRequest(webClient, ctx, uri)
-              .send()
-              .compose(res -> {
-                if (res.statusCode() != 200) {
-                  return Future.failedFuture("GET " + uri + " returned status code "
-                      + res.statusCode());
-                }
-                // TODO clear all existing entries from that agreement and run in transaction
-                Future<Void> future = Future.succeededFuture();
-                JsonArray items = res.bodyAsJsonArray();
-                for (int i = 0; i < items.size(); i++) {
-                  JsonObject agreementLine = items.getJsonObject(i);
-                  future = future
-                      .compose(v -> populateAgreementLine(agreementLine, pool, agreementId, ctx));
-                }
-                return future.map(items.size());
-              });
-        });
+    return pool.getConnection().compose(con -> con.begin().compose(tx -> {
+      final UUID agreementId = UUID.fromString(agreementIdStr);
+      return agreementExists(ctx, agreementId)
+          .compose(exists -> {
+            if (!exists) {
+              return Future.succeededFuture(null);
+            }
+            // expand agreement to get agreement lines, now that we know the agreement ID is good.
+            // the call below returns 500 with a stacktrace if agreement ID is no good.
+            // example: /erm/entitlements?filters=owner%3D3b6623de-de39-4b43-abbc-998bed892025
+            String uri = "/erm/entitlements?filters=owner%3D" + agreementId;
+            return getRequestSend(ctx, uri)
+                .compose(res -> {
+                  Future<Void> future = Future.succeededFuture();
+                  JsonArray items = res.bodyAsJsonArray();
+                  for (int i = 0; i < items.size(); i++) {
+                    JsonObject agreementLine = items.getJsonObject(i);
+                    future = future.compose(v ->
+                        populateAgreementLine(pool, con, agreementLine, agreementId, ctx));
+                  }
+                  return future.compose(x -> tx.commit()).map(items.size());
+                });
+          });
+    }).eventually(x -> con.close()));
   }
 
   Future<Integer> postFromAgreement(Vertx vertx, RoutingContext ctx) {
@@ -749,7 +870,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         .query("CREATE TABLE IF NOT EXISTS " + titleEntriesTable(pool) + " ( "
             + "id UUID PRIMARY KEY, "
             + "counterReportTitle text UNIQUE, "
-            + "matchCriteria text, "
             + "kbTitleName text, "
             + "kbTitleId UUID, "
             + "kbManualMatch boolean,"
@@ -758,12 +878,20 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + ")")
         .execute().mapEmpty();
     future = future.compose(x -> pool
+        .query("CREATE TABLE IF NOT EXISTS " + packageEntriesTable(pool) + " ( "
+            + "kbPackageId UUID, "
+            + "kbPackageName text, "
+            + "kbTitleId UUID "
+            + ")")
+        .execute().mapEmpty());
+    future = future.compose(x -> pool
         .query("CREATE TABLE IF NOT EXISTS " + titleDataTable(pool) + " ( "
             + "id UUID PRIMARY KEY, "
-            + "reportTitleId UUID, "
+            + "titleEntryId UUID, "
             + "counterReportId UUID, "
+            + "counterReportTitle text, "
             + "providerId UUID, "
-            + "pubYear text, "
+            + "publicationDate date, "
             + "usageDateRange daterange,"
             + "uniqueAccessCount integer, "
             + "totalAccessCount integer, "
@@ -771,14 +899,19 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + ")")
         .execute().mapEmpty());
     future = future.compose(x -> pool
-        .query("CREATE TABLE IF NOT EXISTS " + reportDataTable(pool) + " ( "
+        .query("CREATE TABLE IF NOT EXISTS " + agreementEntriesTable(pool) + " ( "
             + "id UUID PRIMARY KEY, "
-            + "titleDataId UUID, "
+            + "kbTitleId UUID, "
+            + "kbPackageId UUID, "
             + "type text, "
-            + "counterReportTitle text, "
+            + "agreementId UUID, "
             + "agreementLineId UUID, "
+            + "poLineId UUID, "
             + "encumberedCost numeric(20, 8), "
-            + "invoicedCost numeric(20, 8)"
+            + "invoicedCost numeric(20, 8), "
+            + "fiscalYearRange daterange, "
+            + "subscriptionDateRange daterange, "
+            + "coverageDateRanges daterange"
             + ")")
         .execute().mapEmpty());
     return future;
