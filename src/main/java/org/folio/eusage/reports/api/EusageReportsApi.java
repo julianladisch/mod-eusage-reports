@@ -21,6 +21,7 @@ import io.vertx.ext.web.validation.RequestParameter;
 import io.vertx.ext.web.validation.RequestParameters;
 import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.RowStream;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Transaction;
@@ -87,45 +88,75 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     return n;
   }
 
-
-  private static void endHandler(RoutingContext ctx, SqlConnection sqlConnection, Transaction tx) {
-    ctx.response().write("] }");
+  static void resultFooter(RoutingContext ctx, Integer count, String diagnostic) {
+    JsonObject resultInfo = new JsonObject();
+    resultInfo.put("totalRecords", count);
+    JsonArray diagnostics = new JsonArray();
+    if (diagnostic != null) {
+      diagnostics.add(new JsonObject().put("message", diagnostic));
+    }
+    resultInfo.put("diagnostics", diagnostics);
+    resultInfo.put("facets", new JsonArray());
+    ctx.response().write("], \"resultInfo\": " + resultInfo.encode() + "}");
     ctx.response().end();
-    tx.commit().compose(x -> sqlConnection.close());
   }
 
-  private static void endStream(RowStream<Row> stream, RoutingContext ctx,
-                         SqlConnection sqlConnection, Transaction tx) {
-    stream.endHandler(end -> endHandler(ctx, sqlConnection, tx));
-    stream.exceptionHandler(e -> {
-      log.error("stream error {}", e.getMessage(), e);
-      endHandler(ctx, sqlConnection, tx);
-    });
-  }
-
-  static Future<Void> streamResult(RoutingContext ctx, TenantPgPool pool, String qry,
+  static Future<Void> streamResult(RoutingContext ctx, SqlConnection sqlConnection,
+                                   String query, String cnt,
                                    String property, Function<Row, JsonObject> handler) {
-    return pool.getConnection().compose(sqlConnection ->
-        sqlConnection.prepare(qry)
-            .<Void>compose(pq ->
-                sqlConnection.begin().compose(tx -> {
-                  ctx.response().setChunked(true);
-                  ctx.response().putHeader("Content-Type", "application/json");
-                  ctx.response().write("{ \"" + property + "\" : [");
-                  AtomicBoolean first = new AtomicBoolean(true);
-                  RowStream<Row> stream = pq.createStream(50);
-                  stream.handler(row -> {
-                    if (!first.getAndSet(false)) {
-                      ctx.response().write(",");
-                    }
-                    JsonObject response = handler.apply(row);
-                    ctx.response().write(copyWithoutNulls(response).encode());
-                  });
-                  endStream(stream, ctx, sqlConnection, tx);
-                  return Future.succeededFuture();
-                })
-            ).onFailure(x -> sqlConnection.close())
-    );
+    return sqlConnection.prepare(query)
+        .<Void>compose(pq ->
+            sqlConnection.begin().compose(tx -> {
+              ctx.response().setChunked(true);
+              ctx.response().putHeader("Content-Type", "application/json");
+              ctx.response().write("{ \"" + property + "\" : [");
+              AtomicBoolean first = new AtomicBoolean(true);
+              RowStream<Row> stream = pq.createStream(50);
+              stream.handler(row -> {
+                if (!first.getAndSet(false)) {
+                  ctx.response().write(",");
+                }
+                JsonObject response = handler.apply(row);
+                ctx.response().write(copyWithoutNulls(response).encode());
+              });
+              stream.endHandler(end -> {
+                sqlConnection.query(cnt).execute()
+                    .onSuccess(cntRes -> {
+                      Integer count = cntRes.iterator().next().getInteger(0);
+                      resultFooter(ctx, count, null);
+                    })
+                    .onFailure(f -> {
+                      log.error(f.getMessage(), f);
+                      resultFooter(ctx, 0, f.getMessage());
+                    })
+                    .eventually(x -> tx.commit());
+              });
+              stream.exceptionHandler(e -> {
+                log.error("stream error {}", e.getMessage(), e);
+                resultFooter(ctx, 0, e.getMessage());
+                tx.commit();
+              });
+              return Future.succeededFuture();
+            })
+        );
+  }
+
+  static Future<Void> streamResult(RoutingContext ctx, TenantPgPool pool,
+                                   String distinct, String from,
+                                   String property,
+                                   Function<Row, JsonObject> handler) {
+    RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+    Integer offset = params.queryParameter("offset").getInteger();
+    Integer limit = params.queryParameter("limit").getInteger();
+    String query = "SELECT " + (distinct != null ? "DISTINCT ON (" + distinct + ")" : "")
+        + " * FROM " + from + " LIMIT " + limit + " OFFSET " + offset;
+    log.info("query={}", query);
+    String cnt = "SELECT COUNT(" + (distinct != null ? "DISTINCT " + distinct : "*")
+        + ") FROM " + from;
+    log.info("cnt={}", cnt);
+    return pool.getConnection()
+        .compose(sqlConnection -> streamResult(ctx, sqlConnection, query, cnt, property, handler)
+            .eventually(x -> sqlConnection.close()));
   }
 
   Future<Void> getReportTitles(Vertx vertx, RoutingContext ctx) {
@@ -134,21 +165,20 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
       String counterReportId = stringOrNull(params.queryParameter("counterReportId"));
       String providerId = stringOrNull(params.queryParameter("providerId"));
-
       TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-      String qry = "SELECT DISTINCT ON (" + titleEntriesTable(pool) + ".id) * FROM "
-          + titleEntriesTable(pool);
+      String distinct = titleEntriesTable(pool) + ".id";
+      String from = titleEntriesTable(pool);
       if (counterReportId != null) {
-        qry = qry + " INNER JOIN " + titleDataTable(pool)
+        from = from + " INNER JOIN " + titleDataTable(pool)
             + " ON titleEntryId = " + titleEntriesTable(pool) + ".id"
             + " WHERE counterReportId = '" + UUID.fromString(counterReportId) + "'";
       } else if (providerId != null) {
-        qry = qry + " INNER JOIN " + titleDataTable(pool)
+        from = from + " INNER JOIN " + titleDataTable(pool)
             + " ON titleEntryId = " + titleEntriesTable(pool) + ".id"
             + " WHERE providerId = '" + UUID.fromString(providerId) + "'";
       }
-      return streamResult(ctx, pool, qry, "titles", row ->
-          new JsonObject()
+      return streamResult(ctx, pool, distinct, from, "titles",
+          row -> new JsonObject()
               .put("id", row.getUUID(0))
               .put("counterReportTitle", row.getString(1))
               .put("kbTitleName", row.getString(2))
@@ -211,8 +241,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
       String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
       TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-      String qry = "SELECT * FROM " + titleDataTable(pool);
-      return streamResult(ctx, pool, qry, "data", row -> {
+      String from = titleDataTable(pool);
+      return streamResult(ctx, pool, null, from, "data",
+          row -> {
             JsonObject obj = new JsonObject()
                 .put("id", row.getUUID(0))
                 .put("titleEntryId", row.getUUID(1))
@@ -670,10 +701,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     try {
       RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
       String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
-
       TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-      String qry = "SELECT * FROM " + agreementEntriesTable(pool);
-      return streamResult(ctx, pool, qry, "data", row ->
+      String from = agreementEntriesTable(pool);
+      return streamResult(ctx, pool, null, from, "data", row ->
           new JsonObject()
               .put("id", row.getUUID(0))
               .put("kbTitleId", row.getUUID(1))
