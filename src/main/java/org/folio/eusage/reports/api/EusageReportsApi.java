@@ -1103,6 +1103,14 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + ")")
         .execute().mapEmpty());
     future = future.compose(x -> pool
+        .query("CREATE INDEX IF NOT EXISTS package_entries_kbTitleId ON "
+            + packageEntriesTable(pool) + " USING btree(kbTitleId)")
+        .execute().mapEmpty());
+    future = future.compose(x -> pool
+        .query("CREATE INDEX IF NOT EXISTS package_entries_kbPackageId ON "
+            + packageEntriesTable(pool) + " USING btree(kbPackageId)")
+        .execute().mapEmpty());
+    future = future.compose(x -> pool
         .query("CREATE TABLE IF NOT EXISTS " + titleDataTable(pool) + " ( "
             + "id UUID PRIMARY KEY, "
             + "titleEntryId UUID, "
@@ -1115,6 +1123,18 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + "totalAccessCount integer, "
             + "openAccess boolean"
             + ")")
+        .execute().mapEmpty());
+    future = future.compose(x -> pool
+        .query("CREATE INDEX IF NOT EXISTS title_data_entries_titleEntryId ON "
+            + titleDataTable(pool) + " USING btree(titleEntryId)")
+        .execute().mapEmpty());
+    future = future.compose(x -> pool
+        .query("CREATE INDEX IF NOT EXISTS title_data_entries_counterReportId ON "
+            + titleDataTable(pool) + " USING btree(counterReportId)")
+        .execute().mapEmpty());
+    future = future.compose(x -> pool
+        .query("CREATE INDEX IF NOT EXISTS title_data_entries_providerId ON "
+            + titleDataTable(pool) + " USING btree(providerId)")
         .execute().mapEmpty());
     future = future.compose(x -> pool
         .query("CREATE TABLE IF NOT EXISTS " + agreementEntriesTable(pool) + " ( "
@@ -1131,6 +1151,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + "subscriptionDateRange daterange, "
             + "coverageDateRanges daterange"
             + ")")
+        .execute().mapEmpty());
+    future = future.compose(x -> pool
+        .query("CREATE INDEX IF NOT EXISTS agreement_entries_agreementId ON "
+            + agreementEntriesTable(pool) + " USING btree(agreementId)")
         .execute().mapEmpty());
     return future;
   }
