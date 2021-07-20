@@ -21,6 +21,7 @@ import io.vertx.ext.web.validation.RequestParameter;
 import io.vertx.ext.web.validation.RequestParameters;
 import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.RowStream;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
@@ -39,6 +40,8 @@ import org.folio.okapi.common.XOkapiHeaders;
 import org.folio.tlib.RouterCreator;
 import org.folio.tlib.TenantInitHooks;
 import org.folio.tlib.postgres.TenantPgPool;
+import org.folio.tlib.util.ResourceUtil;
+import org.folio.tlib.util.TenantUtil;
 
 public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   private static final Logger log = LogManager.getLogger(EusageReportsApi.class);
@@ -1033,6 +1036,55 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
+  /** Draft, Work in Progress (WIP). */
+  Future<Void> getUseOverTime(Vertx vertx, RoutingContext ctx) {
+    TenantPgPool pool = TenantPgPool.pool(vertx, TenantUtil.tenant(ctx));
+    String agreementId = ctx.request().params().get("agreementId");
+    String start = ctx.request().params().get("startDate");
+    String end = ctx.request().params().get("endDate");
+
+    LocalDate startDate = LocalDate.parse(start).withDayOfMonth(1);
+    LocalDate endDate = LocalDate.parse(end).withDayOfMonth(1);
+    if (startDate.compareTo(endDate) > 0) {
+      throw new IllegalArgumentException("startDate=" + start + " is after endDate=" + end);
+    }
+
+    endDate.plusMonths(1);  // PostgreSQL range end value is exclusive
+
+    LocalDate date = startDate;
+    do {
+      LocalDate datePlusOne = date.plusMonths(1);
+      journal(pool, agreementId, date, datePlusOne);
+      date = datePlusOne;
+    } while (date.compareTo(endDate) < 0);
+
+    // draft, Work in Progress (WIP), hardcoded example JSON
+    ctx.response().setStatusCode(200);
+    ctx.response().putHeader("Content-Type", "application/json");
+    ctx.response().end(ResourceUtil.load("/openapi/examples/report.json"));
+
+    return Future.succeededFuture();
+  }
+
+  /** Draft, Work in Progress (WIP). */
+  Future<RowSet<Row>> journal(
+      TenantPgPool pool, String agreementId, LocalDate date, LocalDate datePlusOne) {
+
+    return pool.preparedQuery(
+        "SELECT kbtitleid, min(kbtitlename) AS title, sum(COALESCE(uniqueaccesscount, 0))"
+            + " FROM " + agreementEntriesTable(pool)
+            + " LEFT JOIN " + packageEntriesTable(pool) + " USING (kbpackageid, kbtitleid)"
+            + " LEFT JOIN " + titleEntriesTable(pool) + " USING (kbtitleid)"
+            + " LEFT JOIN " + titleDataTable(pool)
+            + "   ON " + titleEntriesTable(pool) + ".id = "
+            +     titleDataTable(pool) + ".titleentryid"
+            + "   AND daterange($2, $3) @> lower(usagedaterange)"
+            + " WHERE agreementid=$1"
+            + " GROUP BY kbtitleid"
+            + " ORDER BY title, kbtitleid"
+        ).execute(Tuple.of(agreementId, date, datePlusOne));
+  }
+
   @Override
   public Future<Router> createRouter(Vertx vertx, WebClient webClient) {
     this.webClient = webClient;
@@ -1068,6 +1120,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
               .handler(ctx -> postFromAgreement(vertx, ctx)
                   .onFailure(cause -> failHandler(400, ctx, cause)))
               .failureHandler(EusageReportsApi::failHandler);
+          routerBuilder
+               .operation("getUseOverTime")
+               .handler(ctx -> getUseOverTime(vertx, ctx)
+                  .onFailure(cause -> failHandler(400, ctx, cause)))
+               .failureHandler(EusageReportsApi::failHandler);
           return Future.succeededFuture(routerBuilder.createRouter());
         });
   }
