@@ -135,12 +135,12 @@ public class TenantPgPoolImpl implements TenantPgPool {
 
   @Override
   public void getConnection(Handler<AsyncResult<SqlConnection>> handler) {
-    pgPool.getConnection(handler);
+    getConnection().onComplete(handler);
   }
 
   @Override
   public Future<SqlConnection> getConnection() {
-    return pgPool.getConnection();
+    return pgPool.getConnection().map(con -> new ConnectionImpl(con));
   }
 
   private String subst(String s) {
