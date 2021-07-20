@@ -1092,6 +1092,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + ")")
         .execute().mapEmpty();
     future = future.compose(x -> pool
+        .query("CREATE INDEX IF NOT EXISTS title_entries_kbTitleId ON "
+            + titleEntriesTable(pool) + " USING btree(kbTitleId)")
+        .execute().mapEmpty());
+    future = future.compose(x -> pool
         .query("CREATE TABLE IF NOT EXISTS " + packageEntriesTable(pool) + " ( "
             + "kbPackageId UUID, "
             + "kbPackageName text, "
