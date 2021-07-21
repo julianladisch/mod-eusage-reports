@@ -39,6 +39,8 @@ import org.folio.okapi.common.GenericCompositeFuture;
 import org.folio.okapi.common.XOkapiHeaders;
 import org.folio.tlib.RouterCreator;
 import org.folio.tlib.TenantInitHooks;
+import org.folio.tlib.postgres.PgCqlField;
+import org.folio.tlib.postgres.PgCqlQuery;
 import org.folio.tlib.postgres.TenantPgPool;
 import org.folio.tlib.util.ResourceUtil;
 import org.folio.tlib.util.TenantUtil;
@@ -169,21 +171,44 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
   Future<Void> getReportTitles(Vertx vertx, RoutingContext ctx) {
     try {
+      PgCqlQuery pgCqlQuery = PgCqlQuery.query();
+      pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
+      pgCqlQuery.addField(new PgCqlField("counterReportTitle", PgCqlField.Type.TEXT));
+      pgCqlQuery.addField(new PgCqlField("ISBN", PgCqlField.Type.TEXT));
+      pgCqlQuery.addField(new PgCqlField("printISSN", PgCqlField.Type.TEXT));
+      pgCqlQuery.addField(new PgCqlField("onlineISSN", PgCqlField.Type.TEXT));
+      pgCqlQuery.addField(new PgCqlField("kbTitleId", PgCqlField.Type.UUID));
+      pgCqlQuery.addField(new PgCqlField("kbManualMatch", PgCqlField.Type.BOOLEAN));
+
       RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
-      String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
-      String counterReportId = stringOrNull(params.queryParameter("counterReportId"));
-      String providerId = stringOrNull(params.queryParameter("providerId"));
-      TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-      String distinct = titleEntriesTable(pool) + ".id";
+      final String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+      final String counterReportId = stringOrNull(params.queryParameter("counterReportId"));
+      final String providerId = stringOrNull(params.queryParameter("providerId"));
+      final TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
+      final String distinct = titleEntriesTable(pool) + ".id";
+
+      pgCqlQuery.parse(stringOrNull(params.queryParameter("query")));
+      String cqlWhere = pgCqlQuery.getWhereClause();
+
       String from = titleEntriesTable(pool);
       if (counterReportId != null) {
         from = from + " INNER JOIN " + titleDataTable(pool)
             + " ON titleEntryId = " + titleEntriesTable(pool) + ".id"
             + " WHERE counterReportId = '" + UUID.fromString(counterReportId) + "'";
+        if (cqlWhere != null) {
+          from = from + " AND " + cqlWhere;
+        }
       } else if (providerId != null) {
         from = from + " INNER JOIN " + titleDataTable(pool)
             + " ON titleEntryId = " + titleEntriesTable(pool) + ".id"
             + " WHERE providerId = '" + UUID.fromString(providerId) + "'";
+        if (cqlWhere != null) {
+          from = from + " AND " + cqlWhere;
+        }
+      } else {
+        if (cqlWhere != null) {
+          from = from + " WHERE " + cqlWhere;
+        }
       }
       return streamResult(ctx, pool, distinct, from, "titles",
           row -> new JsonObject()
