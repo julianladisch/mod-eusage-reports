@@ -173,6 +173,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     try {
       PgCqlQuery pgCqlQuery = PgCqlQuery.query();
       pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
+      pgCqlQuery.addField(new PgCqlField("id", PgCqlField.Type.UUID));
       pgCqlQuery.addField(new PgCqlField("counterReportTitle", PgCqlField.Type.TEXT));
       pgCqlQuery.addField(new PgCqlField("ISBN", PgCqlField.Type.TEXT));
       pgCqlQuery.addField(new PgCqlField("printISSN", PgCqlField.Type.TEXT));
