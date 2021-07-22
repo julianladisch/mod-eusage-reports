@@ -33,7 +33,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
         log.info("AD: parsing {}", query);
         cqlNodeRoot = parser.parse(query);
       } catch (CQLParseException | IOException e) {
-        throw new IllegalArgumentException(e);
+        throw new IllegalArgumentException(e.getMessage());
       }
     }
   }
@@ -122,24 +122,36 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     boolean backslash = false;
     for (int i = 0; i < cqlTerm.length(); i++) {
       char c = cqlTerm.charAt(i);
-      if (c == '\'') {
-        pgTerm.append("''");
-      }
-      if (!backslash) {
-        if (c == '*') {
+      if (c == '\'' && !backslash) {
+        pgTerm.append('\'');
+      } else if (c == '*') {
+        if (!backslash) {
           throw new IllegalArgumentException("Masking op * unsupported for: " + termNode.toCQL());
         }
-        if (c == '?') {
+      } else if (c == '?') {
+        if (!backslash) {
           throw new IllegalArgumentException("Masking op ? unsupported for: " + termNode.toCQL());
         }
-        if (c == '^') {
+      } else if (c == '^') {
+        if (!backslash) {
           throw new IllegalArgumentException("Anchor op ^ unsupported for: " + termNode.toCQL());
         }
+      } else {
+        if (backslash && c != '"') {
+          pgTerm.append('\\'); // pass-tru the backslash for Postgres to honor
+        }
       }
-      pgTerm.append(c);
-      backslash = c == '\\';
+      if (c == '\\') {
+        backslash = true;
+      } else {
+        backslash = false;
+        pgTerm.append(c);
+      }
     }
-    return field.getColumn() + basicOp(termNode) + "'" + pgTerm + "'";
+    if (backslash) {
+      pgTerm.append('\\');
+    }
+    return field.getColumn() + " " + basicOp(termNode) + " E'" + pgTerm + "'";
   }
 
   String handleTypeNumber(PgCqlField field, CQLTermNode termNode) {
