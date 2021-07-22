@@ -51,7 +51,7 @@ public class PgCqlQueryTest {
         { "Title=\"\"", "title IS NULL" },
         { "Title<>\"\"", "title IS NOT NULL" },
         { "Title==\"\"", "title = E''" },
-        { "Title==\"*$^\"", "title = E'*$^'" },
+        { "Title==\"*?^\"", "title = E'*?^'" },
         { "Title>\"\"", "error: Unsupported operator > for: Title > \"\"" },
         { "Title==v1 or title==v2",  "(title = E'v1' OR title = E'v2')"},
         { "cql.allRecords=1 or title==v1", null },
