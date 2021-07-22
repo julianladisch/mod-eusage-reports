@@ -1130,6 +1130,18 @@ public class MainVerticleTest {
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-titles?query=counterReportTitle=\"cats journal\"")
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"))
+        .extract();
+    resObject = new JsonObject(response.body().asString());
+    analyzeTitles(context, resObject, 1, 1, 0, 0, 0);
+    context.assertEquals("The cats journal",
+        resObject.getJsonArray("titles").getJsonObject(0).getString("counterReportTitle"));
+
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
         .get("/eusage-reports/report-titles?query=kbManualMatch=true")
         .then().statusCode(200)
         .header("Content-Type", is("application/json"))
@@ -1146,6 +1158,7 @@ public class MainVerticleTest {
         .extract();
     resObject = new JsonObject(response.body().asString());
     analyzeTitles(context, resObject, 7, 7, 1, 0, 0);
+
 
     JsonObject n = new JsonObject();
     n.put("id", UUID.randomUUID());

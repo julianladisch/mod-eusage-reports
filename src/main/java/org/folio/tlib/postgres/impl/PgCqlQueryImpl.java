@@ -22,6 +22,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
   final CQLParser parser = new CQLParser(CQLParser.V1POINT2);
   final Map<String, PgCqlField> fields = new HashMap<>();
 
+  String language = "english";
   CQLNode cqlNodeRoot;
 
   @Override
@@ -30,7 +31,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
       cqlNodeRoot = null;
     } else {
       try {
-        log.info("AD: parsing {}", query);
+        log.debug("Parsing {}", query);
         cqlNodeRoot = parser.parse(query);
       } catch (CQLParseException | IOException e) {
         throw new IllegalArgumentException(e.getMessage());
@@ -117,6 +118,8 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     if (s != null) {
       return s;
     }
+    String base = termNode.getRelation().getBase();
+    boolean ft = "=".equals(base) || "all".equals(base);
     String cqlTerm = termNode.getTerm();
     StringBuilder pgTerm = new StringBuilder();
     boolean backslash = false;
@@ -124,15 +127,15 @@ public class PgCqlQueryImpl implements PgCqlQuery {
       char c = cqlTerm.charAt(i);
       if (c == '\'' && !backslash) {
         pgTerm.append('\'');
-      } else if (c == '*') {
+      } else if (c == '*' && ft) {
         if (!backslash) {
           throw new IllegalArgumentException("Masking op * unsupported for: " + termNode.toCQL());
         }
-      } else if (c == '?') {
+      } else if (c == '?' && ft) {
         if (!backslash) {
           throw new IllegalArgumentException("Masking op ? unsupported for: " + termNode.toCQL());
         }
-      } else if (c == '^') {
+      } else if (c == '^' && ft) {
         if (!backslash) {
           throw new IllegalArgumentException("Anchor op ^ unsupported for: " + termNode.toCQL());
         }
@@ -149,7 +152,11 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     if (backslash) {
       pgTerm.append('\\');
     }
-    return field.getColumn() + " " + basicOp(termNode) + " E'" + pgTerm + "'";
+    if (!ft) {
+      return field.getColumn() + " " + basicOp(termNode) + " E'" + pgTerm + "'";
+    }
+    return "to_tsvector('" + language + "', " + field.getColumn() + ") @@ plainto_tsquery('"
+        + language + "', E'" + pgTerm + "')";
   }
 
   String handleTypeNumber(PgCqlField field, CQLTermNode termNode) {
