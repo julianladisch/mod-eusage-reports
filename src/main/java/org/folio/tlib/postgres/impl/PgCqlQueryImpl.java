@@ -254,7 +254,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
       }
     } else if (node instanceof CQLSortNode) {
       CQLSortNode sortNode = (CQLSortNode) node;
-      return whereHandle(sortNode.getSubtree());
+      throw new IllegalArgumentException("Sorting unsupported: " + sortNode.toCQL());
     } else if (node instanceof CQLPrefixNode) {
       CQLPrefixNode prefixNode = (CQLPrefixNode) node;
       return whereHandle(prefixNode.getSubtree());

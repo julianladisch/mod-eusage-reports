@@ -83,8 +83,8 @@ public class PgCqlQueryTest {
         { "id=\"\"", "id IS NULL" },
         { "id=6736bd11-5073-4026-81b5-b70b24179e02", "id='6736bd11-5073-4026-81b5-b70b24179e02'" },
         { "id<>6736bd11-5073-4026-81b5-b70b24179e02", "id<>'6736bd11-5073-4026-81b5-b70b24179e02'" },
-        { "title==v1 sortby cost", "title = E'v1'"},
-        { ">x = \"http://foo.org/p\" title==v1 sortby cost", "title = E'v1'"},
+        { "title==v1 sortby cost", "error: Sorting unsupported: title == v1 sortby cost"},
+        { ">x = \"http://foo.org/p\" title==v1", "title = E'v1'"},
     };
     PgCqlQuery pgCqlQuery = PgCqlQuery.query();
     pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
