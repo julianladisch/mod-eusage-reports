@@ -41,7 +41,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
 
   @Override
   public String getWhereClause() {
-    return whereHandle(cqlNodeRoot);
+    return handleWhere(cqlNodeRoot);
   }
 
   static String basicOp(CQLTermNode termNode) {
@@ -207,14 +207,14 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     return field.getColumn() + basicOp(termNode) + pgTerm;
   }
 
-  String whereHandle(CQLNode node) {
+  String handleWhere(CQLNode node) {
     if (node == null) {
       return null;
     }
     if (node instanceof CQLBooleanNode) {
       CQLBooleanNode booleanNode = (CQLBooleanNode) node;
-      String left = whereHandle(booleanNode.getLeftOperand());
-      String right = whereHandle(booleanNode.getRightOperand());
+      String left = handleWhere(booleanNode.getLeftOperand());
+      String right = handleWhere(booleanNode.getRightOperand());
       switch (booleanNode.getOperator()) {
         case OR:
           if (right != null && left != null) {
@@ -267,7 +267,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
       throw new IllegalArgumentException("Sorting unsupported: " + sortNode.toCQL());
     } else if (node instanceof CQLPrefixNode) {
       CQLPrefixNode prefixNode = (CQLPrefixNode) node;
-      return whereHandle(prefixNode.getSubtree());
+      return handleWhere(prefixNode.getSubtree());
     }
     // other node types unsupported, for example proximity
     throw new IllegalArgumentException("Unsupported CQL construct: " + node.toCQL());
