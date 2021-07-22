@@ -126,7 +126,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     for (int i = 0; i < cqlTerm.length(); i++) {
       char c = cqlTerm.charAt(i);
       if (c == '\'' && !backslash) {
-        pgTerm.append('\'');
+        pgTerm.append('\''); // important to avoid SQL injection
       } else if (c == '*' && ft) {
         if (!backslash) {
           throw new IllegalArgumentException("Masking op * unsupported for: " + termNode.toCQL());
@@ -140,7 +140,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
           throw new IllegalArgumentException("Anchor op ^ unsupported for: " + termNode.toCQL());
         }
       } else if (backslash) {
-        pgTerm.append('\\'); // pass-tru the backslash for Postgres to honor
+        pgTerm.append('\\'); // pass-tru the backslash for Postgres to honor (including \')
       }
       if (c == '\\') {
         backslash = true;
