@@ -38,6 +38,8 @@ public class PgCqlQueryTest {
         { "Title=a\\?b", "title = E'a?b'" },
         { "Title=a\\?b", "title = E'a?b'" },
         { "Title=a\\n", "title = E'a\\n'" },
+        { "Title=\"a\\\"\"", "title = E'a\"'" },
+        { "Title=\"a\\\"b\"", "title = E'a\"b'" },
         { "Title=a\\12", "title = E'a\\12'" },
         { "Title=a\\\\", "title = E'a\\\\'" },
         { "Title=a\\'", "title = E'a\\''" },
