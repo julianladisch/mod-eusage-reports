@@ -16,9 +16,7 @@ public class PgCqlField {
    * @param type data type.
    */
   public PgCqlField(String name, Type type) {
-    this.name = name;
-    this.column = name;
-    this.type = type;
+    this(name, name, type);
   }
 
   /**
@@ -42,6 +40,6 @@ public class PgCqlField {
   }
 
   public String getColumn() {
-    return name;
+    return column;
   }
 }

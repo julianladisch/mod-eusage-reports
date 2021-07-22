@@ -24,7 +24,7 @@ public class PgCqlQueryTest {
         { "(", "error: expected index or term, got EOF" },
         { "foo=bar", "error: Unsupported CQL index: foo" },
         { "Title=v1", "title = E'v1'" },
-        { "Title==v1", "title = E'v1'" },
+        { "dc.Title==v1", "title = E'v1'" },
         { "Title>v1", "error: Unsupported operator > for: Title > v1" },
         { "Title=\"men's room\"", "title = E'men''s room'" },
         { "Title=men's room", "title = E'men''s room'" },
@@ -84,6 +84,7 @@ public class PgCqlQueryTest {
     PgCqlQuery pgCqlQuery = PgCqlQuery.query();
     pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
     pgCqlQuery.addField(new PgCqlField("title", PgCqlField.Type.TEXT));
+    pgCqlQuery.addField(new PgCqlField("dc.title", "title", PgCqlField.Type.TEXT));
     pgCqlQuery.addField(new PgCqlField("cost", PgCqlField.Type.NUMBER));
     pgCqlQuery.addField(new PgCqlField("paid", PgCqlField.Type.BOOLEAN));
     pgCqlQuery.addField(new PgCqlField("id", PgCqlField.Type.UUID));
