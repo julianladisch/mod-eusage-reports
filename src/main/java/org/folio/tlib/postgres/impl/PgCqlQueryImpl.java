@@ -78,7 +78,8 @@ public class PgCqlQueryImpl implements PgCqlQuery {
 
   /**
    * See if this is a CQL query with a existence check (NULL or NOT NULL).
-   * <p>Empty term makes "IS NULL" for CQL relation =, "IS NOT NULL" for CQL relation <>.
+   * <p>Empty term makes "IS NULL" for CQL relation =, "IS NOT NULL" for CQL relation <>,
+   * makes always matches for relation ==.
    * </p>
    * @param field CQL field.
    * @param termNode term.
