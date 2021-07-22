@@ -113,13 +113,15 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     return field.getColumn() + op + pgTerm;
   }
 
-  String handleTypeText(PgCqlField field, CQLTermNode termNode) {
+  String handleTypeText(PgCqlField field, CQLTermNode termNode, boolean fullText) {
     String s = handleNull(field, termNode);
     if (s != null) {
       return s;
     }
     String base = termNode.getRelation().getBase();
-    boolean ft = "=".equals(base) || "all".equals(base);
+    if (fullText) {
+      fullText = "=".equals(base) || "all".equals(base);
+    }
     String cqlTerm = termNode.getTerm();
     StringBuilder pgTerm = new StringBuilder();
     boolean backslash = false;
@@ -127,15 +129,15 @@ public class PgCqlQueryImpl implements PgCqlQuery {
       char c = cqlTerm.charAt(i);
       if (c == '\'' && !backslash) {
         pgTerm.append('\''); // important to avoid SQL injection
-      } else if (c == '*' && ft) {
+      } else if (c == '*' && fullText) {
         if (!backslash) {
           throw new IllegalArgumentException("Masking op * unsupported for: " + termNode.toCQL());
         }
-      } else if (c == '?' && ft) {
+      } else if (c == '?' && fullText) {
         if (!backslash) {
           throw new IllegalArgumentException("Masking op ? unsupported for: " + termNode.toCQL());
         }
-      } else if (c == '^' && ft) {
+      } else if (c == '^' && fullText) {
         if (!backslash) {
           throw new IllegalArgumentException("Anchor op ^ unsupported for: " + termNode.toCQL());
         }
@@ -152,11 +154,11 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     if (backslash) {
       pgTerm.append('\\');
     }
-    if (!ft) {
-      return field.getColumn() + " " + basicOp(termNode) + " E'" + pgTerm + "'";
+    if (fullText) {
+      return "to_tsvector('" + language + "', " + field.getColumn() + ") @@ plainto_tsquery('"
+          + language + "', E'" + pgTerm + "')";
     }
-    return "to_tsvector('" + language + "', " + field.getColumn() + ") @@ plainto_tsquery('"
-        + language + "', E'" + pgTerm + "')";
+    return field.getColumn() + " " + basicOp(termNode) + " E'" + pgTerm + "'";
   }
 
   String handleTypeNumber(PgCqlField field, CQLTermNode termNode) {
@@ -244,7 +246,9 @@ public class PgCqlQueryImpl implements PgCqlQuery {
         case UUID:
           return handleTypeUuid(field, termNode);
         case TEXT:
-          return handleTypeText(field, termNode);
+          return handleTypeText(field, termNode, false);
+        case FULLTEXT:
+          return handleTypeText(field, termNode, true);
         case NUMBER:
           return handleTypeNumber(field, termNode);
         case BOOLEAN:

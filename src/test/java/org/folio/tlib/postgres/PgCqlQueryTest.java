@@ -54,6 +54,8 @@ public class PgCqlQueryTest {
         { "Title==\"*?^\"", "title = E'*?^'" },
         { "Title>\"\"", "error: Unsupported operator > for: Title > \"\"" },
         { "Title==v1 or title==v2",  "(title = E'v1' OR title = E'v2')"},
+        { "isbn=978-3-16-148410-0", "isbn = E'978-3-16-148410-0'" },
+        { "isbn=978-3-16-148410-*", "isbn = E'978-3-16-148410-*'" },
         { "cql.allRecords=1 or title==v1", null },
         { "title==v1 or cql.allRecords=1", null },
         { "Title==v1 and title==v2", "(title = E'v1' AND title = E'v2')" },
@@ -88,7 +90,8 @@ public class PgCqlQueryTest {
     };
     PgCqlQuery pgCqlQuery = PgCqlQuery.query();
     pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
-    pgCqlQuery.addField(new PgCqlField("title", PgCqlField.Type.TEXT));
+    pgCqlQuery.addField(new PgCqlField("title", PgCqlField.Type.FULLTEXT));
+    pgCqlQuery.addField(new PgCqlField("isbn", PgCqlField.Type.TEXT));
     pgCqlQuery.addField(new PgCqlField("cost", PgCqlField.Type.NUMBER));
     pgCqlQuery.addField(new PgCqlField("paid", PgCqlField.Type.BOOLEAN));
     pgCqlQuery.addField(new PgCqlField("id", PgCqlField.Type.UUID));

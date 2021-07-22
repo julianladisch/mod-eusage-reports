@@ -3,7 +3,7 @@ package org.folio.tlib.postgres;
 public class PgCqlField {
 
   public enum Type {
-    ALWAYS_MATCHES, UUID, TEXT, NUMBER, BOOLEAN
+    ALWAYS_MATCHES, UUID, TEXT, NUMBER, BOOLEAN, FULLTEXT
   }
 
   final String name;
