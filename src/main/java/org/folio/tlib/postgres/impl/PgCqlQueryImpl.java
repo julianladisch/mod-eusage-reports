@@ -114,15 +114,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     return field.getColumn() + op + pgTerm;
   }
 
-  String handleTypeText(PgCqlField field, CQLTermNode termNode, boolean fullText) {
-    String s = handleNull(field, termNode);
-    if (s != null) {
-      return s;
-    }
-    String base = termNode.getRelation().getBase();
-    if (fullText) {
-      fullText = "=".equals(base) || "all".equals(base);
-    }
+  static String cqlTermToPgTerm(CQLTermNode termNode, boolean fullText) {
     String cqlTerm = termNode.getTerm();
     StringBuilder pgTerm = new StringBuilder();
     boolean backslash = false;
@@ -155,6 +147,19 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     if (backslash) {
       pgTerm.append('\\');
     }
+    return pgTerm.toString();
+  }
+
+  String handleTypeText(PgCqlField field, CQLTermNode termNode, boolean fullText) {
+    String s = handleNull(field, termNode);
+    if (s != null) {
+      return s;
+    }
+    String base = termNode.getRelation().getBase();
+    if (fullText) {
+      fullText = "=".equals(base) || "all".equals(base);
+    }
+    String pgTerm = cqlTermToPgTerm(termNode, fullText);
     if (fullText) {
       return "to_tsvector('" + language + "', " + field.getColumn() + ") @@ plainto_tsquery('"
           + language + "', E'" + pgTerm + "')";
