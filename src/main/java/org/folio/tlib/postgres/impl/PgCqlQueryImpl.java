@@ -139,7 +139,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
         if (!backslash) {
           throw new IllegalArgumentException("Anchor op ^ unsupported for: " + termNode.toCQL());
         }
-      } else if (backslash && c != '"') {
+      } else if (backslash) {
         pgTerm.append('\\'); // pass-tru the backslash for Postgres to honor
       }
       if (c == '\\') {
