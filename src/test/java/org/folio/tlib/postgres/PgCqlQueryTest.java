@@ -15,13 +15,13 @@ public class PgCqlQueryTest {
     pgCqlQuery.addField(new PgCqlField("dc.title", "title", PgCqlField.Type.TEXT));
 
     pgCqlQuery.parse("dc.Title==value");
-    Assert.assertEquals("title = E'value'", pgCqlQuery.getWhereClause());
+    Assert.assertEquals("title = 'value'", pgCqlQuery.getWhereClause());
   }
 
   static String ftResponse(String column, String term) {
-    return "to_tsvector('english', " + column + ") @@ plainto_tsquery('english', E'" + term + "')";
-
+    return "to_tsvector('english', " + column + ") @@ plainto_tsquery('english', '" + term + "')";
   }
+
   @Test
   public void testQueries() {
     String[][] list = new String[][] {
@@ -43,26 +43,38 @@ public class PgCqlQueryTest {
         { "Title=\"a\\\"\"", ftResponse("title", "a\"") },
         { "Title=\"a\\\"b\"", ftResponse("title", "a\"b") },
         { "Title=a\\12", ftResponse("title", "a\\12") },
-        { "Title=a\\\\", ftResponse("title", "a\\\\") },
-        { "Title=a\\'", ftResponse("title", "a''") },
-        { "Title=a\\'b", ftResponse("title", "a''b") },
-        { "Title=a\\\\\\n", ftResponse("title", "a\\\\\\n") },
-        { "Title=a\\\\\\?", ftResponse("title", "a\\\\?") },
+        { "Title=a\\\\", ftResponse("title", "a\\") },
+        { "Title=a\\'", ftResponse("title", "a\\''") },
+        { "Title=a\\'b", ftResponse("title", "a\\''b") },
+        { "Title=a\\\\\\n", ftResponse("title", "a\\\\n") },
+        { "Title=a\\\\", ftResponse("title", "a\\") },
+        { "Title=aa\\\\1", ftResponse("title", "aa\\1") },
+        { "Title=ab\\\\\\?", ftResponse("title", "ab\\?") },
+        { "Title=\"b\\\\\"", ftResponse("title", "b\\") },
+        { "Title=\"c\\\\'\"", ftResponse("title", "c\\''") },
+        { "Title=\"c\\\\d\"", ftResponse("title", "c\\d") },
+        { "Title=\"d\\\\\\\\\"", ftResponse("title", "d\\\\") },
+        { "Title=\"x\\\\\\\"\\\\\"", ftResponse("title", "x\\\"\\") },
         { "Title=\"\"", "title IS NULL" },
         { "Title<>\"\"", "title IS NOT NULL" },
-        { "Title==\"\"", "title = E''" },
-        { "Title==\"*?^\"", "title = E'*?^'" },
+        { "Title==\"\"", "title = ''" },
+        { "Title==\"*?^\"", "title = '*?^'" },
+        { "Title==\"\\*\\?\\^\"", "title = '\\*\\?\\^'" },
+        { "Title==\"b\\\\\"", "title = 'b\\'" },
+        { "Title==\"c\\\\'\"", "title = 'c\\'''" },
+        { "Title==\"d\\\\\\\\\"", "title = 'd\\\\'" },
+        { "Title==\"e\\\\\\\"\\\\\"", "title = 'e\\\"\\'" },
         { "Title>\"\"", "error: Unsupported operator > for: Title > \"\"" },
-        { "Title==v1 or title==v2",  "(title = E'v1' OR title = E'v2')"},
-        { "isbn=978-3-16-148410-0", "isbn = E'978-3-16-148410-0'" },
-        { "isbn=978-3-16-148410-*", "isbn = E'978-3-16-148410-*'" },
+        { "Title==v1 or title==v2",  "(title = 'v1' OR title = 'v2')"},
+        { "isbn=978-3-16-148410-0", "isbn = '978-3-16-148410-0'" },
+        { "isbn=978-3-16-148410-*", "isbn = '978-3-16-148410-*'" },
         { "cql.allRecords=1 or title==v1", null },
         { "title==v1 or cql.allRecords=1", null },
-        { "Title==v1 and title==v2", "(title = E'v1' AND title = E'v2')" },
-        { "Title==v1 and cql.allRecords=1", "title = E'v1'" },
-        { "cql.allRecords=1 and Title==v2", "title = E'v2'" },
-        { "Title==v1 not title==v2", "(title = E'v1' AND NOT title = E'v2')" },
-        { "cql.allRecords=1 not title==v2", "NOT (title = E'v2')" },
+        { "Title==v1 and title==v2", "(title = 'v1' AND title = 'v2')" },
+        { "Title==v1 and cql.allRecords=1", "title = 'v1'" },
+        { "cql.allRecords=1 and Title==v2", "title = 'v2'" },
+        { "Title==v1 not title==v2", "(title = 'v1' AND NOT title = 'v2')" },
+        { "cql.allRecords=1 not title==v2", "NOT (title = 'v2')" },
         { "title==v1 not cql.allRecords=1", "FALSE" },
         { "title==v1 prox title==v2", "error: Unsupported operator PROX" },
         { "cost=1", "cost=1" },
@@ -89,7 +101,7 @@ public class PgCqlQueryTest {
         { "id=6736bd11-5073-4026-81b5-b70b24179e02", "id='6736bd11-5073-4026-81b5-b70b24179e02'" },
         { "id<>6736bd11-5073-4026-81b5-b70b24179e02", "id<>'6736bd11-5073-4026-81b5-b70b24179e02'" },
         { "title==v1 sortby cost", "error: Sorting unsupported: title == v1 sortby cost"},
-        { ">x = \"http://foo.org/p\" title==v1", "title = E'v1'"},
+        { ">x = \"http://foo.org/p\" title==v1", "title = 'v1'"},
     };
     PgCqlQuery pgCqlQuery = PgCqlQuery.query();
     pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));

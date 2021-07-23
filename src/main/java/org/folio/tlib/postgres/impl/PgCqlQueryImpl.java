@@ -110,38 +110,73 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     return field.getColumn() + op + pgTerm;
   }
 
-  static String cqlTermToPgTerm(CQLTermNode termNode, boolean fullText) {
+  /**
+   * Convert CQL term to Postgres term - exact - without C style escapes in result.
+   * <p> Double backslash is converted to backslash. Postgres quotes (') are escaped.
+   * Otherwise things are passed through verbatim.
+   * </p>
+   * @param termNode termNode which includes term and relation.
+   * @return Postgres term without C style escapes.
+   */
+  static String cqlTermToPgTermExact(CQLTermNode termNode) {
     String cqlTerm = termNode.getTerm();
     StringBuilder pgTerm = new StringBuilder();
     boolean backslash = false;
     for (int i = 0; i < cqlTerm.length(); i++) {
       char c = cqlTerm.charAt(i);
-      if (c == '\'') {
-        pgTerm.append('\''); // important to avoid SQL injection
-      } else if (c == '*' && fullText) {
+      if (c == '\\' && backslash) {
+        backslash = false;
+      } else {
+        pgTerm.append(c);
+        if (c == '\'') {
+          pgTerm.append('\''); // important to avoid SQL injection
+        }
+        backslash = c == '\\';
+      }
+    }
+    return pgTerm.toString();
+  }
+
+  /**
+   * CQL full text term to Postgres term.
+   * @see <a href="https://www.postgresql.org/docs/13/sql-syntax-lexical.html">
+   *   String Constants section</a>
+   *
+   * <p>At this stage masking is unsupported and rejected.</p>
+   * @param termNode which includes term and relation.
+   * @return Postgres term.
+   */
+  static String cqlTermToPgTermFullText(CQLTermNode termNode) {
+    String cqlTerm = termNode.getTerm();
+    StringBuilder pgTerm = new StringBuilder();
+    boolean backslash = false;
+    for (int i = 0; i < cqlTerm.length(); i++) {
+      char c = cqlTerm.charAt(i);
+      // handle the CQL specials *, ?, ^, \\, rest are passed through as is
+      if (c == '*') {
         if (!backslash) {
           throw new IllegalArgumentException("Masking op * unsupported for: " + termNode.toCQL());
         }
-      } else if (c == '?' && fullText) {
+      } else if (c == '?') {
         if (!backslash) {
           throw new IllegalArgumentException("Masking op ? unsupported for: " + termNode.toCQL());
         }
-      } else if (c == '^' && fullText) {
+      } else if (c == '^') {
         if (!backslash) {
           throw new IllegalArgumentException("Anchor op ^ unsupported for: " + termNode.toCQL());
         }
-      } else if (backslash) {
-        pgTerm.append('\\'); // pass-tru the backslash for Postgres to honor (including \')
+      } else if (c != '\\' && backslash) {
+        pgTerm.append('\\');
       }
-      if (c == '\\') {
+      if (c == '\\' && !backslash) {
         backslash = true;
       } else {
-        backslash = false;
         pgTerm.append(c);
+        if (c == '\'') {
+          pgTerm.append(c);
+        }
+        backslash = false;
       }
-    }
-    if (backslash) {
-      pgTerm.append('\\');
     }
     return pgTerm.toString();
   }
@@ -155,12 +190,13 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     if (fullText) {
       fullText = "=".equals(base) || "all".equals(base);
     }
-    String pgTerm = cqlTermToPgTerm(termNode, fullText);
     if (fullText) {
+      String pgTerm = cqlTermToPgTermFullText(termNode);
       return "to_tsvector('" + language + "', " + field.getColumn() + ") @@ plainto_tsquery('"
-          + language + "', E'" + pgTerm + "')";
+          + language + "', '" + pgTerm + "')";
     }
-    return field.getColumn() + " " + basicOp(termNode) + " E'" + pgTerm + "'";
+    return field.getColumn() + " " + basicOp(termNode)
+        + " '" +  cqlTermToPgTermExact(termNode) + "'";
   }
 
   String handleTypeNumber(PgCqlField field, CQLTermNode termNode) {
