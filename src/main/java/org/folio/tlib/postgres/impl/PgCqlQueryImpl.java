@@ -78,8 +78,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
 
   /**
    * See if this is a CQL query with a existence check (NULL or NOT NULL).
-   * <p>Empty term makes "IS NULL" for CQL relation =, "IS NOT NULL" for CQL relation <>,
-   * makes always matches for relation ==.
+   * <p>Empty term makes "IS NULL" for CQL relation =, "IS NOT NULL" for CQL relation <>.
    * </p>
    * @param field CQL field.
    * @param termNode term.
@@ -91,16 +90,12 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     }
     String base = termNode.getRelation().getBase();
     switch (base) {
-      case "==":
-        return null;
       case "=":
         return field.getColumn() + " IS NULL";
       case "<>":
         return field.getColumn() + " IS NOT NULL";
-      default:
-        throw new IllegalArgumentException("Unsupported operator " + base + " for: "
-            + termNode.toCQL());
     }
+    return null;
   }
 
   String handleTypeUuid(PgCqlField field, CQLTermNode termNode) {
