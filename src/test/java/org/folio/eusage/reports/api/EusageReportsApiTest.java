@@ -5,6 +5,7 @@ import static org.folio.eusage.reports.api.EusageReportsApi.packageEntriesTable;
 import static org.folio.eusage.reports.api.EusageReportsApi.titleDataTable;
 import static org.folio.eusage.reports.api.EusageReportsApi.titleEntriesTable;
 import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
+import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
 import static org.hamcrest.collection.IsArrayContainingInOrder.arrayContaining;
@@ -12,6 +13,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import io.vertx.core.Future;
@@ -32,6 +34,7 @@ import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.mockito.quality.Strictness;
@@ -79,16 +82,40 @@ public class EusageReportsApiTest {
             context.assertTrue(x.getMessage().contains("Failed to decode agreement line:"), x.getMessage())));
   }
 
+  private String getUseOverTime(String format, String startDate, String endDate) {
+    RoutingContext ctx = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
+    when(ctx.request().getHeader("X-Okapi-Tenant")).thenReturn("footenant");
+    when(ctx.request().params().get("format")).thenReturn(format);
+    when(ctx.request().params().get("startDate")).thenReturn(startDate);
+    when(ctx.request().params().get("endDate")).thenReturn(endDate);
+    new EusageReportsApi().getUseOverTime(vertx, ctx);
+    ArgumentCaptor<String> argument = ArgumentCaptor.forClass(String.class);
+    verify(ctx.response()).end(argument.capture());
+    return argument.getValue();
+  }
+
   @Test
   public void useOverTimeStartDateAfterEndDate() {
-    RoutingContext ctx = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
-    when(ctx.request().getHeader("X-Okapi-Tenant")).thenReturn("foo");
-    when(ctx.request().params().get("format")).thenReturn("JOURNAL");
-    when(ctx.request().params().get("startDate")).thenReturn("2020-04-01");
-    when(ctx.request().params().get("endDate")).thenReturn("2020-02-01");
     Throwable t = assertThrows(IllegalArgumentException.class, () ->
-        new EusageReportsApi().getUseOverTime(vertx, ctx));
+        getUseOverTime("JOURNAL", "2020-04-01", "2020-02-01"));
     assertThat(t.getMessage(), is("startDate=2020-04-01 is after endDate=2020-02-01"));
+  }
+
+  @Test
+  public void useOverTimeBook() {
+    assertThat(getUseOverTime("BOOK", "2020-03-01", "2020-04-01"), containsString("2020-03"));
+  }
+
+  @Test
+  public void useOverTimeDatabase() {
+    assertThat(getUseOverTime("DATABASE", "2020-03-01", "2020-04-01"), containsString("2020-03"));
+  }
+
+  @Test
+  public void useOverTimeUnknownFormat() {
+    Throwable t = assertThrows(IllegalArgumentException.class, () ->
+    getUseOverTime("FOO", "2020-04-01", "2020-02-01"));
+    assertThat(t.getMessage(), containsString("format = FOO"));
   }
 
   // agreementId

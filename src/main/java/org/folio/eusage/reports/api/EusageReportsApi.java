@@ -1082,10 +1082,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Void> getUseOverTime(Vertx vertx, RoutingContext ctx) {
-    switch (ctx.request().params().get("format")) {
+    String format = ctx.request().params().get("format");
+    switch (format) {
+      case "JOURNAL": return getUseOverTimeJournal(vertx, ctx);
       case "BOOK": return getUseOverTimeBook(vertx, ctx);
       case "DATABASE": return getUseOverTimeDatabase(vertx, ctx);
-      default: return getUseOverTimeJournal(vertx, ctx);
+      default: throw new IllegalArgumentException("format = " + format);
     }
   }
 
