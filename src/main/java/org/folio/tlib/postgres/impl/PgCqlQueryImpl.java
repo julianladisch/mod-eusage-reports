@@ -94,8 +94,9 @@ public class PgCqlQueryImpl implements PgCqlQuery {
         return field.getColumn() + " IS NULL";
       case "<>":
         return field.getColumn() + " IS NOT NULL";
+      default:
+        return null;
     }
-    return null;
   }
 
   String handleTypeUuid(PgCqlField field, CQLTermNode termNode) {
