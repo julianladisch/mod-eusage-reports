@@ -8,6 +8,7 @@ import static org.mockserver.model.HttpRequest.request;
 import static org.mockserver.model.HttpResponse.response;
 
 import java.nio.file.Path;
+import junit.framework.AssertionFailedError;
 import org.junit.Before;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -94,12 +95,30 @@ public class ApiIT {
 
   @Test
   public void useOverTime() {
-    given().
-      body("{ \"module_to\": \"99.99.99\" }").
-    when().
-      post("/_/tenant").
-    then().
-      statusCode(201);
+    String location =
+        given().
+          body("{ \"module_to\": \"99.99.99\" }").
+        when().
+          post("/_/tenant").
+        then().
+          statusCode(201).
+        extract().
+          header("Location");
+
+    int i = 0;
+    boolean complete;
+    do {
+      if (++i >= 30) {
+        throw new AssertionFailedError("POST /_/tenant timeout");
+      }
+      complete =
+          when().
+            get(location + "?wait=1").
+          then().
+            statusCode(200).
+          extract().
+            path("complete");
+    } while (! complete);
 
     given().
       param("agreementId", "10000000-0000-4000-8000-000000000000").
