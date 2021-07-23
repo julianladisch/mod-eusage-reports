@@ -115,7 +115,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     boolean backslash = false;
     for (int i = 0; i < cqlTerm.length(); i++) {
       char c = cqlTerm.charAt(i);
-      if (c == '\'' && !backslash) {
+      if (c == '\'') {
         pgTerm.append('\''); // important to avoid SQL injection
       } else if (c == '*' && fullText) {
         if (!backslash) {
