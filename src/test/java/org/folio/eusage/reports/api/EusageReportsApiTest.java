@@ -82,16 +82,19 @@ public class EusageReportsApiTest {
             context.assertTrue(x.getMessage().contains("Failed to decode agreement line:"), x.getMessage())));
   }
 
-  private String getUseOverTime(String format, String startDate, String endDate) {
+  private Future<String> getUseOverTime(String format, String startDate, String endDate) {
     RoutingContext ctx = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
-    when(ctx.request().getHeader("X-Okapi-Tenant")).thenReturn("footenant");
+    when(ctx.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
     when(ctx.request().params().get("format")).thenReturn(format);
+    when(ctx.request().params().get("agreementId")).thenReturn(UUID.randomUUID().toString());
     when(ctx.request().params().get("startDate")).thenReturn(startDate);
     when(ctx.request().params().get("endDate")).thenReturn(endDate);
-    new EusageReportsApi().getUseOverTime(vertx, ctx);
-    ArgumentCaptor<String> argument = ArgumentCaptor.forClass(String.class);
-    verify(ctx.response()).end(argument.capture());
-    return argument.getValue();
+    return new EusageReportsApi().getUseOverTime(vertx, ctx)
+    .map(x -> {
+      ArgumentCaptor<String> argument = ArgumentCaptor.forClass(String.class);
+      verify(ctx.response()).end(argument.capture());
+      return argument.getValue();
+    });
   }
 
   @Test
@@ -102,13 +105,23 @@ public class EusageReportsApiTest {
   }
 
   @Test
+  public void useOverTimeJournal(TestContext context) {
+    EusageReportsApi api = new EusageReportsApi();
+    api.postInit(vertx, tenant, new JsonObject().put("module_to", "1.1.1"))
+    .compose(x -> getUseOverTime("JOURNAL", "2020-03-01", "2020-05-01"))
+    .onComplete(context.asyncAssertSuccess(json -> {
+      assertThat(json, containsString("2020-04"));
+    }));
+  }
+
+  @Test
   public void useOverTimeBook() {
-    assertThat(getUseOverTime("BOOK", "2020-03-01", "2020-04-01"), containsString("2020-03"));
+    assertThat(getUseOverTime("BOOK", "2020-03-01", "2020-04-01").result(), containsString("2020-03"));
   }
 
   @Test
   public void useOverTimeDatabase() {
-    assertThat(getUseOverTime("DATABASE", "2020-03-01", "2020-04-01"), containsString("2020-03"));
+    assertThat(getUseOverTime("DATABASE", "2020-03-01", "2020-04-01").result(), containsString("2020-03"));
   }
 
   @Test
