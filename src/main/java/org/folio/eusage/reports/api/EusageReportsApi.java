@@ -1067,7 +1067,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     }).eventually(x -> con.close()));
   }
 
-  Future<Integer> postFromAgreement(Vertx vertx, RoutingContext ctx) {
+  Future<Void> postFromAgreement(Vertx vertx, RoutingContext ctx) {
     return populateAgreement(vertx, ctx)
         .compose(linesCreated -> {
           if (linesCreated == null) {
@@ -1256,47 +1256,34 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     return Future.succeededFuture();
   }
 
+  private void add(RouterBuilder routerBuilder,
+      String operationId, Function<RoutingContext, Future<Void>> function) {
+
+    routerBuilder
+    .operation(operationId)
+    .handler(ctx -> {
+      try {
+        function.apply(ctx)
+            .onFailure(cause -> failHandler(400, ctx, cause));
+      } catch (Throwable t) {
+        failHandler(400, ctx, t);
+      }
+    }).failureHandler(EusageReportsApi::failHandler);
+  }
+
   @Override
   public Future<Router> createRouter(Vertx vertx, WebClient webClient) {
     this.webClient = webClient;
     return RouterBuilder.create(vertx, "openapi/eusage-reports-1.0.yaml")
-        .compose(routerBuilder -> {
-          routerBuilder
-              .operation("getReportTitles")
-              .handler(ctx -> getReportTitles(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-              .operation("postReportTitles")
-              .handler(ctx -> postReportTitles(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-              .operation("postFromCounter")
-              .handler(ctx -> postFromCounter(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-              .operation("getTitleData")
-              .handler(ctx -> getTitleData(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-              .operation("getReportData")
-              .handler(ctx -> getReportData(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-              .operation("postFromAgreement")
-              .handler(ctx -> postFromAgreement(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-               .operation("getUseOverTime")
-               .handler(ctx -> getUseOverTime(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-               .failureHandler(EusageReportsApi::failHandler);
-          return Future.succeededFuture(routerBuilder.createRouter());
+        .map(routerBuilder -> {
+          add(routerBuilder, "getReportTitles", ctx -> getReportTitles(vertx, ctx));
+          add(routerBuilder, "postReportTitles", ctx -> postReportTitles(vertx, ctx));
+          add(routerBuilder, "postFromCounter", ctx -> postFromCounter(vertx, ctx));
+          add(routerBuilder, "getTitleData", ctx -> getTitleData(vertx, ctx));
+          add(routerBuilder, "getReportData", ctx -> getReportData(vertx, ctx));
+          add(routerBuilder, "postFromAgreement", ctx -> postFromAgreement(vertx, ctx));
+          add(routerBuilder, "getUseOverTime", ctx -> getUseOverTime(vertx, ctx));
+          return routerBuilder.createRouter();
         });
   }
 
