@@ -1,7 +1,7 @@
 in: query
 name: format
 description: item format type
-required: false
+required: true
 schema:
   type: string
   pattern: ^(BOOK|JOURNAL|DATABASE)$
