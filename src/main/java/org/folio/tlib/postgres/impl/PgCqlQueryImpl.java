@@ -169,6 +169,9 @@ public class PgCqlQueryImpl implements PgCqlQuery {
       return s;
     }
     String cqlTerm = termNode.getTerm();
+    if (cqlTerm.isEmpty()) {
+      throw new IllegalArgumentException("Bad numeric for: " + termNode.toCQL());
+    }
     for (int i = 0; i < cqlTerm.length(); i++) {
       char c = cqlTerm.charAt(i);
       switch (c) {
