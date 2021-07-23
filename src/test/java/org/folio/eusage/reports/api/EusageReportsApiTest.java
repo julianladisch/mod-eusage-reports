@@ -6,6 +6,8 @@ import static org.folio.eusage.reports.api.EusageReportsApi.titleDataTable;
 import static org.folio.eusage.reports.api.EusageReportsApi.titleEntriesTable;
 import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.collection.IsArrayContainingInOrder.arrayContaining;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -14,6 +16,7 @@ import static org.mockito.Mockito.when;
 
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.unit.TestContext;
 import io.vertx.ext.unit.junit.RunTestOnContext;
@@ -33,8 +36,6 @@ import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.mockito.quality.Strictness;
 import org.testcontainers.containers.PostgreSQLContainer;
-import java.time.LocalDate;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -82,6 +83,7 @@ public class EusageReportsApiTest {
   public void useOverTimeStartDateAfterEndDate() {
     RoutingContext ctx = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
     when(ctx.request().getHeader("X-Okapi-Tenant")).thenReturn("foo");
+    when(ctx.request().params().get("format")).thenReturn("JOURNAL");
     when(ctx.request().params().get("startDate")).thenReturn("2020-04-01");
     when(ctx.request().params().get("endDate")).thenReturn("2020-02-01");
     Throwable t = assertThrows(IllegalArgumentException.class, () ->
@@ -128,21 +130,15 @@ public class EusageReportsApiTest {
   }
 
   private Future<RowSet<Row>> insertTitleData(String titleEntryId,
-      String dateStart, String dateEnd, int uniqueAccessCount, int totalAccessCount) {
+      String dateStart, String dateEnd, boolean openAccess, int uniqueAccessCount, int totalAccessCount) {
     return pool.preparedQuery("INSERT INTO " + titleDataTable(pool)
-        + "(id, titleEntryId, usageDateRange, uniqueAccessCount, totalAccessCount) "
-        + "VALUES ($1, $2, daterange($3::text::date, $4::text::date), $5, $6)")
-    .execute(Tuple.of(UUID.randomUUID(), titleEntryId, dateStart, dateEnd, uniqueAccessCount, totalAccessCount));
-  }
-
-  private static List<String> deepToString(RowSet<Row> rowSet) {
-    List<String> rows = new ArrayList<>();
-    rowSet.forEach(row -> rows.add(row.deepToString()));
-    return rows;
+        + "(id, titleEntryId, usageDateRange, openAccess, uniqueAccessCount, totalAccessCount) "
+        + "VALUES ($1, $2, daterange($3::text::date, $4::text::date), $5, $6, $7)")
+    .execute(Tuple.of(UUID.randomUUID(), titleEntryId, dateStart, dateEnd, openAccess, uniqueAccessCount, totalAccessCount));
   }
 
   @Test
-  public void useOverTimeSql(TestContext context) {
+  public void getUseOverTimeJournal(TestContext context) {
     EusageReportsApi api = new EusageReportsApi();
     api.postInit(vertx, tenant, new JsonObject().put("module_to", "1.1.1"))
     .compose(x -> insertAgreement(a1, t11, p11))
@@ -157,36 +153,81 @@ public class EusageReportsApiTest {
     .compose(x -> insertTitleEntry(te12, "Title 12", t12))
     .compose(x -> insertTitleEntry(te21, "Title 21", t21))
     .compose(x -> insertTitleEntry(te22, "Title 22", t22))
-    .compose(x -> insertTitleData(te11, "2020-03-01", "2020-04-01", 1, 2))
-    .compose(x -> insertTitleData(te11, "2020-04-01", "2020-04-15", 2, 3))
-    .compose(x -> insertTitleData(te11, "2020-04-15", "2020-05-01", 3, 3))
-    .compose(x -> insertTitleData(te11, "2020-05-01", "2020-06-01", 4, 12))
-    .compose(x -> insertTitleData(te12, "2020-03-01", "2020-04-01", 11, 12))
-    .compose(x -> insertTitleData(te12, "2020-04-01", "2020-05-01", 15, 16))
-    .compose(x -> insertTitleData(te12, "2020-05-01", "2020-06-01", 14, 22))
-    .compose(x -> insertTitleData(te21, "2020-03-01", "2020-04-01", 0, 0))
-    .compose(x -> insertTitleData(te21, "2020-05-01", "2020-06-01", 20, 40))
-    .compose(x -> api.journal(pool, a1, LocalDate.parse("2020-04-01"), LocalDate.parse("2020-05-01")))
-    .onComplete(context.asyncAssertSuccess(rowSet -> {
-      assertThat(deepToString(rowSet), contains(
-          "[11000000-0000-4000-8000-000000000000,Title 11,5]",
-          "[12000000-0000-4000-8000-000000000000,Title 12,15]"));
+    .compose(x -> insertTitleData(te11, "2020-03-01", "2020-04-01", false, 1, 2))
+    .compose(x -> insertTitleData(te11, "2020-04-01", "2020-04-15", false, 2, 3))
+    .compose(x -> insertTitleData(te11, "2020-04-15", "2020-05-01", false, 3, 3))
+    .compose(x -> insertTitleData(te11, "2020-05-01", "2020-06-01", false, 4, 12))
+    .compose(x -> insertTitleData(te12, "2020-03-01", "2020-04-01", false, 11, 12))
+    .compose(x -> insertTitleData(te12, "2020-04-01", "2020-05-01", false, 15, 16))
+    .compose(x -> insertTitleData(te12, "2020-05-01", "2020-06-01", false, 14, 22))
+    .compose(x -> insertTitleData(te21, "2020-03-01", "2020-04-01", false, 0, 0))
+    .compose(x -> insertTitleData(te21, "2020-05-01", "2020-06-01", false, 20, 40))
+    .compose(x -> insertTitleData(te21, "2020-06-01", "2020-07-01", true, 1, 2))
+
+    .compose(x -> api.getUseOverTimeJournal(pool, a1, "2020-04-01", "2020-06-01"))
+    .onComplete(context.asyncAssertSuccess(json -> {
+      assertThat(json.getString("agreementId"), is(a1));
+      assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(), contains("2020-04", "2020-05"));
+      assertThat(json.getLong("totalItemRequestsTotal"), is(56L));
+      assertThat(json.getLong("uniqueItemRequestsTotal"), is(38L));
+      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining(22L, 34L)));
+      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining(20L, 18L)));
+      assertThat(json.getJsonArray("items").size(), is(8));
+      assertThat(json.getJsonArray("items").getJsonObject(0).encodePrettily(),
+          is(new JsonObject()
+              .put("kbId", "11000000-0000-4000-8000-000000000000")
+              .put("title", "Title 11")
+              .put("printISSN", null)
+              .put("onlineISSN", null)
+              .put("accessType", "Controlled")
+              .put("metricType", "Total_Item_Requests")
+              .put("accessCountTotal", 18)
+              .put("accessCountsByPeriod", new JsonArray("[ 6, 12 ]"))
+              .encodePrettily()));
+      assertThat(json.getJsonArray("items").getJsonObject(1).encodePrettily(),
+          is(new JsonObject()
+              .put("kbId", "11000000-0000-4000-8000-000000000000")
+              .put("title", "Title 11")
+              .put("printISSN", null)
+              .put("onlineISSN", null)
+              .put("accessType", "Controlled")
+              .put("metricType", "Unique_Item_Requests")
+              .put("accessCountTotal", 9)
+              .put("accessCountsByPeriod", new JsonArray("[ 5, 4 ]"))
+              .encodePrettily()));
+      assertThat(json.getJsonArray("items").getJsonObject(2).encodePrettily(),
+          is(new JsonObject()
+              .put("kbId", "11000000-0000-4000-8000-000000000000")
+              .put("title", "Title 11")
+              .put("printISSN", null)
+              .put("onlineISSN", null)
+              .put("accessType", "OA_Gold")
+              .put("metricType", "Total_Item_Requests")
+              .put("accessCountTotal", null)
+              .put("accessCountsByPeriod", new JsonArray("[ null, null ]"))
+              .encodePrettily()));
     }))
-    .compose(x -> api.journal(pool, a2, LocalDate.parse("2020-05-01"), LocalDate.parse("2020-06-01")))
-    .onComplete(context.asyncAssertSuccess(rowSet -> {
-      assertThat(deepToString(rowSet), contains(
-          "[21000000-0000-4000-8000-000000000000,Title 21,20]",
-          "[22000000-0000-4000-8000-000000000000,Title 22,0]"));
+    // openAccess
+    .compose(x -> api.getUseOverTimeJournal(pool, a2, "2020-06-01", "2020-07-01"))
+    .onComplete(context.asyncAssertSuccess(json -> {
+      assertThat(json.getLong("totalItemRequestsTotal"), is(2L));
+      assertThat(json.getLong("uniqueItemRequestsTotal"), is(1L));
+      JsonObject item2 = json.getJsonArray("items").getJsonObject(2);
+      JsonObject item3 = json.getJsonArray("items").getJsonObject(3);
+      assertThat(item2.getString("accessType"), is("OA_Gold"));
+      assertThat(item3.getString("accessType"), is("OA_Gold"));
+      assertThat(item2.getString("metricType"), is("Total_Item_Requests"));
+      assertThat(item2.getLong("accessCountTotal"), is(2L));
+      assertThat(item3.getString("metricType"), is("Unique_Item_Requests"));
+      assertThat(item3.getLong("accessCountTotal"), is(1L));
+    }))
+    // time without any data, totals should be null
+    .compose(x -> api.getUseOverTimeJournal(pool, a2, "1999-12-01", "2000-02-01"))
+    .onComplete(context.asyncAssertSuccess(json -> {
+      assertThat(json.getLong("totalItemRequestsTotal"), is(nullValue()));
+      assertThat(json.getLong("uniqueItemRequestsTotal"), is(nullValue()));
+      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining((Long)null, null)));
+      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining((Long)null, null)));
     }));
   }
-
-  @Test
-  public void useOverTime() {
-    RoutingContext ctx = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
-    when(ctx.request().getHeader("X-Okapi-Tenant")).thenReturn("foo");
-    when(ctx.request().params().get("startDate")).thenReturn("2020-03-01");
-    when(ctx.request().params().get("endDate")).thenReturn("2020-05-01");
-    new EusageReportsApi().getUseOverTime(vertx, ctx);
-  }
-
 }

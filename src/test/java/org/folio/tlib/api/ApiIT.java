@@ -1,7 +1,7 @@
 package org.folio.tlib.api;
 
 import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.number.OrderingComparison.greaterThan;
+import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
 import static io.restassured.RestAssured.given;
 import static io.restassured.RestAssured.when;
 import static org.mockserver.model.HttpRequest.request;
@@ -110,7 +110,7 @@ public class ApiIT {
       get("/eusage-reports/stored-reports/use-over-time").
     then().
       statusCode(200).
-      body("totalItemRequestsTotal", is(greaterThan(0)));
+      body("accessCountPeriods", contains("2020-03", "2020-04"));
   }
 
 }
