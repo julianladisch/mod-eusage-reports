@@ -142,7 +142,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
 
   /**
    * CQL full text term to Postgres term.
-   * @see <a href="https://www.postgresql.org/docs/13/sql-syntax-lexical.html">
+   * @see <a href="https://www.postgresql.org/docs/13/sql-syntax-lexical.html#SQL-SYNTAX-STRINGS">
    *   String Constants section</a>
    *
    * <p>At this stage masking is unsupported and rejected.</p>
