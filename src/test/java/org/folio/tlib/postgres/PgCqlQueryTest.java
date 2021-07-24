@@ -77,6 +77,9 @@ public class PgCqlQueryTest {
         { "cql.allRecords=1 not title==v2", "NOT (title = 'v2')" },
         { "title==v1 not cql.allRecords=1", "FALSE" },
         { "title==v1 prox title==v2", "error: Unsupported operator PROX" },
+        { "cost=1 or cost=2 and cost=3", "((cost=1 OR cost=2) AND cost=3)" }, // boolean are left-assoc and same precedence in CQL
+        { "cost=1 or (cost=2 and cost=3)", "(cost=1 OR (cost=2 AND cost=3))" },
+        { "cost=\"\" or cost<>\"\" not cost<>\"\"", "((cost IS NULL OR cost IS NOT NULL) AND NOT cost IS NOT NULL)" },
         { "cost=1", "cost=1" },
         { "cost=+1.9", "cost=+1.9" },
         { "cost=e", "cost=e" },
