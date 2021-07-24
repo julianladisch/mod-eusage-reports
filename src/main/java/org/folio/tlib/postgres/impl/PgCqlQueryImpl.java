@@ -303,7 +303,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
       }
     } else if (node instanceof CQLSortNode) {
       CQLSortNode sortNode = (CQLSortNode) node;
-      throw new IllegalArgumentException("Sorting unsupported: " + sortNode.toCQL());
+      throw new IllegalArgumentException("Sorting unsupported: " + node.toCQL());
     } else if (node instanceof CQLPrefixNode) {
       CQLPrefixNode prefixNode = (CQLPrefixNode) node;
       return handleWhere(prefixNode.getSubtree());
