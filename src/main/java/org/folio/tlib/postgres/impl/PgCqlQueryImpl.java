@@ -84,7 +84,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
    * @param termNode term.
    * @return SQL op for NULL; null if not a NULL check.
    */
-  String handleNull(PgCqlField field, CQLTermNode termNode) {
+  static String handleNull(PgCqlField field, CQLTermNode termNode) {
     if (!termNode.getTerm().isEmpty()) {
       return null;
     }
@@ -99,7 +99,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     }
   }
 
-  String handleTypeUuid(PgCqlField field, CQLTermNode termNode) {
+  static String handleTypeUuid(PgCqlField field, CQLTermNode termNode) {
     String s = handleNull(field, termNode);
     if (s != null) {
       return s;
@@ -199,7 +199,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
         + " '" +  cqlTermToPgTermExact(termNode) + "'";
   }
 
-  String handleTypeNumber(PgCqlField field, CQLTermNode termNode) {
+  static String handleTypeNumber(PgCqlField field, CQLTermNode termNode) {
     String s = handleNull(field, termNode);
     if (s != null) {
       return s;
@@ -225,7 +225,7 @@ public class PgCqlQueryImpl implements PgCqlQuery {
     return field.getColumn() + numberOp(termNode) + cqlTerm;
   }
 
-  String handleTypeBoolean(PgCqlField field, CQLTermNode termNode) {
+  static String handleTypeBoolean(PgCqlField field, CQLTermNode termNode) {
     String s = handleNull(field, termNode);
     if (s != null) {
       return s;
