@@ -212,7 +212,8 @@ public class PgCqlQueryImpl implements PgCqlQuery {
       char c = cqlTerm.charAt(i);
       switch (c) {
         case '.':
-        case ',':
+        case 'e':
+        case 'E':
         case '+':
         case '-':
           break;
