@@ -101,6 +101,7 @@ public class PgCqlQueryTest {
         { "id==\"\"", "error: Invalid UUID string: " },
         { "id=\"\"", "id IS NULL" },
         { "id=6736bd11-5073-4026-81b5-b70b24179e02", "id='6736bd11-5073-4026-81b5-b70b24179e02'" },
+        { "id=6736BD11-5073-4026-81B5-B70B24179E02", "id='6736bd11-5073-4026-81b5-b70b24179e02'" },
         { "id<>6736bd11-5073-4026-81b5-b70b24179e02", "id<>'6736bd11-5073-4026-81b5-b70b24179e02'" },
         { "title==v1 sortby cost", "error: Sorting unsupported: title == v1 sortby cost"},
         { ">x = \"http://foo.org/p\" title==v1", "title = 'v1'"},
