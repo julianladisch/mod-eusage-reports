@@ -1,5 +1,10 @@
 package org.folio.tlib.api;
 
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.number.OrderingComparison.greaterThan;
+import static org.hamcrest.number.OrderingComparison.lessThan;
+import static org.hamcrest.MatcherAssert.assertThat;
+
 import io.restassured.RestAssured;
 import io.restassured.response.ExtractableResponse;
 import io.restassured.response.Response;
@@ -19,10 +24,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.folio.tlib.postgres.TenantPgPool;
 import org.folio.tlib.postgres.TenantPgPoolContainer;
+import org.junit.After;
 import org.junit.AfterClass;
+import org.junit.Assume;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.Timeout;
 import org.junit.runner.RunWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 
@@ -42,6 +51,9 @@ public class Tenant2ApiTest {
       return serverSocket.getLocalPort();
     }
   }
+
+  @Rule
+  public Timeout timeout = Timeout.seconds(10);
 
   @ClassRule
   public static PostgreSQLContainer<?> postgresSQLContainer = TenantPgPoolContainer.create();
@@ -69,6 +81,7 @@ public class Tenant2ApiTest {
   }
 
   static TenantInitHooks hooks = new TenantInitHooks();
+  private static PgConnectOptions initialPgConnectOptions;
 
   @BeforeClass
   public static void beforeClass(TestContext context) {
@@ -76,6 +89,7 @@ public class Tenant2ApiTest {
     vertx = Vertx.vertx();
     RestAssured.enableLoggingOfRequestAndResponseIfValidationFails();
     RestAssured.port = port;
+    initialPgConnectOptions = TenantPgPool.getDefaultConnectOptions();
 
     new Tenant2Api(hooks).createRouter(vertx, WebClient.create(vertx))
         .compose(router -> {
@@ -90,6 +104,11 @@ public class Tenant2ApiTest {
   @AfterClass
   public static void afterClass(TestContext context) {
     vertx.close(context.asyncAssertSuccess());
+  }
+
+  @After
+  public void setDefaultConnectOptions() {
+    TenantPgPool.setDefaultConnectOptions(initialPgConnectOptions);
   }
 
   @Test
@@ -120,14 +139,11 @@ public class Tenant2ApiTest {
 
   @Test
   public void testPostTenantBadPort(TestContext context) throws IOException {
+    Assume.assumeThat(System.getenv("DB_PORT"), is(nullValue()));
+
     String tenant = "testlib";
-    PgConnectOptions bad = new PgConnectOptions();
-    PgConnectOptions pgConnectOptions = TenantPgPool.getDefaultConnectOptions();
-    bad.setHost(pgConnectOptions.getHost());
+    PgConnectOptions bad = new PgConnectOptions(initialPgConnectOptions);
     bad.setPort(getFreePort());
-    bad.setUser(pgConnectOptions.getUser());
-    bad.setPassword(pgConnectOptions.getPassword());
-    bad.setDatabase(pgConnectOptions.getDatabase());
     TenantPgPool.setDefaultConnectOptions(bad);
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -137,19 +153,15 @@ public class Tenant2ApiTest {
         .then().statusCode(400)
         .header("Content-Type", is("text/plain"))
         .body(containsString("DB_PORT="));
-    TenantPgPool.setDefaultConnectOptions(pgConnectOptions);
   }
 
   @Test
   public void testPostTenantBadDatabase(TestContext context) {
+    Assume.assumeThat(System.getenv("DB_DATABASE"), is(nullValue()));
+
     String tenant = "testlib";
-    PgConnectOptions bad = new PgConnectOptions();
-    PgConnectOptions pgConnectOptions = TenantPgPool.getDefaultConnectOptions();
-    bad.setHost(pgConnectOptions.getHost());
-    bad.setPort(pgConnectOptions.getPort());
-    bad.setUser(pgConnectOptions.getUser());
-    bad.setPassword(pgConnectOptions.getPassword());
-    bad.setDatabase(pgConnectOptions.getDatabase() + "_foo");
+    PgConnectOptions bad = new PgConnectOptions(initialPgConnectOptions);
+    bad.setDatabase(bad.getDatabase() + "_foo");
     TenantPgPool.setDefaultConnectOptions(bad);
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -173,8 +185,6 @@ public class Tenant2ApiTest {
         .then().statusCode(500)
         .header("Content-Type", is("text/plain"))
         .body(containsString("database"));
-
-    TenantPgPool.setDefaultConnectOptions(pgConnectOptions);
   }
 
   @Test
@@ -182,24 +192,24 @@ public class Tenant2ApiTest {
     String tenant = "testlib";
     log.info("AD: POST begin");
 
+    hooks.preInitPromise = Promise.promise();
+    hooks.preInitPromise.complete();
+
     // init
-    String error = tenantOp(context, tenant, new JsonObject()
+    tenantOp(tenant, new JsonObject()
         .put("module_to", "mod-eusage-reports-1.0.0")
     );
-    context.assertNull(error);
 
     // upgrade
-    error = tenantOp(context, tenant, new JsonObject()
+    tenantOp(tenant, new JsonObject()
         .put("module_from", "mod-eusage-reports-1.0.0")
         .put("module_to", "mod-eusage-reports-1.0.1")
     );
-    context.assertNull(error);
 
     // disable
-    error = tenantOp(context, tenant, new JsonObject()
+    tenantOp(tenant, new JsonObject()
         .put("module_from", "mod-eusage-reports-1.0.1")
     );
-    context.assertNull(error);
 
     // purge
     RestAssured.given()
@@ -212,6 +222,7 @@ public class Tenant2ApiTest {
         .post("/_/tenant")
         .then().statusCode(204);
 
+    // 2nd purge
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
         .header("Content-Type", "application/json")
@@ -240,7 +251,7 @@ public class Tenant2ApiTest {
     context.assertEquals("pre init failure", response.body().asString());
   }
 
-  String tenantOp(TestContext context, String tenant, JsonObject body) {
+  private void tenantOp(String tenant, JsonObject body) {
     log.info("AD: POST begin");
     ExtractableResponse<Response> response = RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -254,25 +265,33 @@ public class Tenant2ApiTest {
 
     log.info("AD: POST completed");
     String location = response.header("Location");
-    JsonObject tenantJob = new JsonObject(response.asString());
-    context.assertEquals("/_/tenant/" + tenantJob.getString("id"), location);
+    String id = response.path("id");
+    assertThat(location, is("/_/tenant/" + id));
 
-    response = RestAssured.given()
+    RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
         .get(location)
-        .then().statusCode(200)
-        .extract();
-    boolean complete = response.path("complete");
-    context.assertFalse(complete);
-    while (!complete) {
-      response = RestAssured.given()
-          .header("X-Okapi-Tenant", tenant)
-          .get(location + "?wait=1")
-          .then().statusCode(200)
-          .extract();
-      complete = response.path("complete");
-      hooks.postInitPromise.tryComplete();
-    }
+        .then().statusCode(200).body("complete", is(false));
+
+    RestAssured.given()
+    .header("X-Okapi-Tenant", tenant)
+    .get(location + "?wait=1")  // wait for up to 1 second
+    .then()
+      .statusCode(200)
+      .body("complete", is(false))
+      .time(greaterThan(500L /* ms */))
+      .time(lessThan(1500L /* ms */));
+
+    vertx.setTimer(1000 /* ms */, timerFired -> hooks.postInitPromise.tryComplete());
+
+    RestAssured.given()
+    .header("X-Okapi-Tenant", tenant)
+    .get(location + "?wait=5")
+    .then()
+      .statusCode(200)
+      .body("complete", is(true))
+      .time(greaterThan(500L /* ms */))
+      .time(lessThan(1500L /* ms */));
 
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -283,7 +302,6 @@ public class Tenant2ApiTest {
         .header("X-Okapi-Tenant", tenant)
         .delete(location)
         .then().statusCode(404);
-    return response.path("error");
   }
 
   @Test
