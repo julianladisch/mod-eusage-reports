@@ -259,6 +259,7 @@ public class Tenant2ApiTest {
         .then().statusCode(201)
         .header("Content-Type", is("application/json"))
         .body("tenant", is(tenant))
+        .body("error", is(nullValue()))
         .extract();
 
     log.info("AD: POST completed");
