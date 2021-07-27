@@ -270,7 +270,9 @@ public class Tenant2ApiTest {
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
         .get(location)
-        .then().statusCode(200).body("complete", is(false));
+        .then().statusCode(200)
+        .body("complete", is(false))
+        .body("error", is(nullValue()));
 
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -278,6 +280,7 @@ public class Tenant2ApiTest {
     .then()
         .statusCode(200)
         .body("complete", is(false))
+        .body("error", is(nullValue()))
         .time(greaterThan(500L /* ms */))
         .time(lessThan(1500L /* ms */));
 
@@ -289,6 +292,7 @@ public class Tenant2ApiTest {
     .then()
         .statusCode(200)
         .body("complete", is(true))
+        .body("error", is(nullValue()))
         .time(greaterThan(500L /* ms */))
         .time(lessThan(1500L /* ms */));
 
