@@ -112,7 +112,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantBadTenant1(TestContext context) {
+  public void testPostTenantBadTenant1() {
     String tenant = "test'lib";
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -125,7 +125,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantBadTenant2(TestContext context) {
+  public void testPostTenantBadTenant2() {
     String tenant = "test\"lib";
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -138,7 +138,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantBadPort(TestContext context) throws IOException {
+  public void testPostTenantBadPort() throws IOException {
     Assume.assumeThat(System.getenv("DB_PORT"), is(nullValue()));
 
     String tenant = "testlib";
@@ -156,7 +156,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantBadDatabase(TestContext context) {
+  public void testPostTenantBadDatabase() {
     Assume.assumeThat(System.getenv("DB_DATABASE"), is(nullValue()));
 
     String tenant = "testlib";
@@ -188,7 +188,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantOK(TestContext context) {
+  public void testPostTenantOK() {
     String tenant = "testlib";
     log.info("AD: POST begin");
 
@@ -235,20 +235,18 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantPreInitFail(TestContext context) {
+  public void testPostTenantPreInitFail() {
     String tenant = "testlib";
     hooks.preInitPromise = Promise.promise();
     hooks.preInitPromise.fail("pre init failure");
-    ExtractableResponse<Response> response = RestAssured.given()
+    RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
         .header("Content-Type", "application/json")
         .body("{\"module_to\" : \"mod-eusage-reports-1.0.0\"}")
         .post("/_/tenant")
         .then().statusCode(500)
         .header("Content-Type", is("text/plain"))
-        .extract();
-
-    context.assertEquals("pre init failure", response.body().asString());
+        .body(is("pre init failure"));
   }
 
   private void tenantOp(String tenant, JsonObject body) {
@@ -274,24 +272,24 @@ public class Tenant2ApiTest {
         .then().statusCode(200).body("complete", is(false));
 
     RestAssured.given()
-    .header("X-Okapi-Tenant", tenant)
-    .get(location + "?wait=1")  // wait for up to 1 second
+        .header("X-Okapi-Tenant", tenant)
+        .get(location + "?wait=1")  // wait for up to 1 second
     .then()
-      .statusCode(200)
-      .body("complete", is(false))
-      .time(greaterThan(500L /* ms */))
-      .time(lessThan(1500L /* ms */));
+        .statusCode(200)
+        .body("complete", is(false))
+        .time(greaterThan(500L /* ms */))
+        .time(lessThan(1500L /* ms */));
 
     vertx.setTimer(1000 /* ms */, timerFired -> hooks.postInitPromise.tryComplete());
 
     RestAssured.given()
-    .header("X-Okapi-Tenant", tenant)
-    .get(location + "?wait=5")
+        .header("X-Okapi-Tenant", tenant)
+        .get(location + "?wait=5")
     .then()
-      .statusCode(200)
-      .body("complete", is(true))
-      .time(greaterThan(500L /* ms */))
-      .time(lessThan(1500L /* ms */));
+        .statusCode(200)
+        .body("complete", is(true))
+        .time(greaterThan(500L /* ms */))
+        .time(lessThan(1500L /* ms */));
 
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -305,7 +303,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantPostInitFail(TestContext context) {
+  public void testPostTenantPostInitFail() {
     String tenant = "testlib";
     ExtractableResponse<Response> response = RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -318,18 +316,16 @@ public class Tenant2ApiTest {
         .extract();
 
     String location = response.header("Location");
-    JsonObject tenantJob = new JsonObject(response.asString());
-    context.assertEquals("/_/tenant/" + tenantJob.getString("id"), location);
+    String id = response.path("id");
+    assertThat(location,  is("/_/tenant/" + id));
 
     hooks.postInitPromise.fail("post init failure");
-    String s = RestAssured.given()
+    RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
         .get(location)
         .then().statusCode(200)
-        .extract().body().asString();
-    JsonObject tenantJob2 = new JsonObject(s);
-    context.assertTrue(tenantJob2.getBoolean("complete"));
-    context.assertEquals("post init failure", tenantJob2.getString("error"));
+        .body("complete", is(true))
+        .body("error", is("post init failure"));
 
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -345,7 +341,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantPostInitFailNull(TestContext context) {
+  public void testPostTenantPostInitFailNull() {
     String tenant = "testlib";
     ExtractableResponse<Response> response = RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -358,19 +354,16 @@ public class Tenant2ApiTest {
         .extract();
 
     String location = response.header("Location");
-    JsonObject tenantJob = new JsonObject(response.asString());
-    context.assertEquals("/_/tenant/" + tenantJob.getString("id"), location);
+    String id = response.path("id");
+    assertThat(location,  is("/_/tenant/" + id));
 
     hooks.postInitPromise.fail((String) null);
-    String s = RestAssured.given()
+    RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
         .get(location)
         .then().statusCode(200)
-        .extract().body().asString();
-    JsonObject tenantJob2 = new JsonObject(s);
-    context.assertTrue(tenantJob2.getBoolean("complete"));
-    context.assertTrue(tenantJob2.containsKey("error"));
-    context.assertEquals("io.vertx.core.impl.NoStackTraceThrowable", tenantJob2.getString("error"));
+        .body("complete", is(true))
+        .body("error", is("io.vertx.core.impl.NoStackTraceThrowable"));
 
     RestAssured.given()
         .header("X-Okapi-Tenant", tenant)
@@ -386,7 +379,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostMissingTenant(TestContext context) {
+  public void testPostMissingTenant() {
     RestAssured.given()
         .header("Content-Type", "application/json")
         .body("{\"module_to\" : \"mod-eusage-reports-1.0.0\"}")
@@ -396,7 +389,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testGetMissingTenant(TestContext context){
+  public void testGetMissingTenant(){
     String id = UUID.randomUUID().toString();
     RestAssured.given()
         .get("/_/tenant/" + id)
@@ -405,7 +398,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testGetBadId(TestContext context){
+  public void testGetBadId(){
     String id = "1234";
     RestAssured.given()
         .header("X-Okapi-Tenant", "testlib")
@@ -416,7 +409,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testDeleteMissingTenant(TestContext context){
+  public void testDeleteMissingTenant(){
     String id = UUID.randomUUID().toString();
     RestAssured.given()
         .delete("/_/tenant/" + id)
@@ -425,7 +418,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testDeleteBadId(TestContext context){
+  public void testDeleteBadId(){
     String id = "1234";
     RestAssured.given()
         .header("X-Okapi-Tenant", "testlib")
@@ -436,7 +429,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantBadJson(TestContext context) {
+  public void testPostTenantBadJson() {
     RestAssured.given()
         .header("Content-Type", "application/json")
         .body("{\"module_to\" : \"mod-eusage-reports-1.0.0\"")
@@ -445,7 +438,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantBadType(TestContext context) {
+  public void testPostTenantBadType() {
     RestAssured.given()
         .header("Content-Type", "application/json")
         .body("{\"module_to\" : true}")
@@ -454,7 +447,7 @@ public class Tenant2ApiTest {
   }
 
   @Test
-  public void testPostTenantAdditional(TestContext context) {
+  public void testPostTenantAdditional() {
     RestAssured.given()
         .header("Content-Type", "application/json")
         .body("{\"module_to\" : \"mod-eusage-reports-1.0.0\", \"extra\":true}")
