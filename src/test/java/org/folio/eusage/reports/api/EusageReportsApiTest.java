@@ -105,21 +105,6 @@ public class EusageReportsApiTest {
   }
 
   @Test
-  public void useOverTimeJournal(TestContext context) {
-    EusageReportsApi api = new EusageReportsApi();
-    api.postInit(vertx, tenant, new JsonObject().put("module_to", "1.1.1"))
-    .compose(x -> getUseOverTime("JOURNAL", "2020-03-01", "2020-05-01"))
-    .onComplete(context.asyncAssertSuccess(json -> {
-      assertThat(json, containsString("2020-04"));
-    }));
-  }
-
-  @Test
-  public void useOverTimeBook() {
-    assertThat(getUseOverTime("BOOK", "2020-03-01", "2020-04-01").result(), containsString("2020-03"));
-  }
-
-  @Test
   public void useOverTimeDatabase() {
     assertThat(getUseOverTime("DATABASE", "2020-03-01", "2020-04-01").result(), containsString("2020-03"));
   }
@@ -134,21 +119,28 @@ public class EusageReportsApiTest {
   // agreementId
   String a1  = "10000000-0000-4000-8000-000000000000";
   String a2  = "20000000-0000-4000-8000-000000000000";
+  String a3  = "20000000-0000-4000-8000-000000000000";
   // kbTitleId
   String t11 = "11000000-0000-4000-8000-000000000000";
   String t12 = "12000000-0000-4000-8000-000000000000";
   String t21 = "21000000-0000-4000-8000-000000000000";
   String t22 = "22000000-0000-4000-8000-000000000000";
+  String t31 = "31000000-0000-4000-8000-000000000000";
+  String t32 = "32000000-0000-4000-8000-000000000000";
   // kbPackageId
   String p11 = "1100000a-0000-4000-8000-000000000000";
   String p12 = "1200000a-0000-4000-8000-000000000000";
   String p21 = "2100000a-0000-4000-8000-000000000000";
   String p22 = "2200000a-0000-4000-8000-000000000000";
+  String p31 = "3100000a-0000-4000-8000-000000000000";
+  String p32 = "3200000a-0000-4000-8000-000000000000";
   // titleEntryId
   String te11 = "1100000e-0000-4000-8000-000000000000";
   String te12 = "1200000e-0000-4000-8000-000000000000";
   String te21 = "2100000e-0000-4000-8000-000000000000";
   String te22 = "2200000e-0000-4000-8000-000000000000";
+  String te31 = "3100000e-0000-4000-8000-000000000000";
+  String te32 = "3200000e-0000-4000-8000-000000000000";
 
   private Future<RowSet<Row>> insertAgreement(String agreementId, String titleId, String packageId) {
     return pool.preparedQuery("INSERT INTO " + agreementEntriesTable(pool)
@@ -163,10 +155,17 @@ public class EusageReportsApiTest {
   }
 
   private Future<RowSet<Row>> insertTitleEntry(String titleEntryId,
-      String titleName, String titleId) {
+      String titleId, String titleName, String printISSN, String onlineISSN) {
     return pool.preparedQuery("INSERT INTO " + titleEntriesTable(pool)
-        + "(id, kbTitleName, kbTitleId) VALUES ($1, $2, $3)")
-    .execute(Tuple.of(titleEntryId, titleName, titleId));
+        + "(id, kbTitleId, kbTitleName, printISSN, onlineISSN) VALUES ($1, $2, $3, $4, $5)")
+    .execute(Tuple.of(titleEntryId, titleId, titleName, printISSN, onlineISSN));
+  }
+
+  private Future<RowSet<Row>> insertTitleEntry(String titleEntryId,
+      String titleId, String titleName, String isbn) {
+    return pool.preparedQuery("INSERT INTO " + titleEntriesTable(pool)
+        + "(id, kbTitleId, kbTitleName, ISBN) VALUES ($1, $2, $3, $4)")
+    .execute(Tuple.of(titleEntryId, titleId, titleName, isbn));
   }
 
   private Future<RowSet<Row>> insertTitleData(String titleEntryId,
@@ -178,21 +177,27 @@ public class EusageReportsApiTest {
   }
 
   @Test
-  public void getUseOverTimeJournal(TestContext context) {
+  public void useOverTime(TestContext context) {
     EusageReportsApi api = new EusageReportsApi();
     api.postInit(vertx, tenant, new JsonObject().put("module_to", "1.1.1"))
     .compose(x -> insertAgreement(a1, t11, p11))
     .compose(x -> insertAgreement(a1, t12, p12))
     .compose(x -> insertAgreement(a2, t21, p21))
     .compose(x -> insertAgreement(a2, t22, p22))
+    .compose(x -> insertAgreement(a3, t31, p31))
+    .compose(x -> insertAgreement(a3, t32, p32))
     .compose(x -> insertPackageEntry(p11, "Package 11", t11))
     .compose(x -> insertPackageEntry(p12, "Package 12", t21))
     .compose(x -> insertPackageEntry(p21, "Package 21", t12))
     .compose(x -> insertPackageEntry(p22, "Package 22", t22))
-    .compose(x -> insertTitleEntry(te11, "Title 11", t11))
-    .compose(x -> insertTitleEntry(te12, "Title 12", t12))
-    .compose(x -> insertTitleEntry(te21, "Title 21", t21))
-    .compose(x -> insertTitleEntry(te22, "Title 22", t22))
+    .compose(x -> insertPackageEntry(p31, "Package 31", t31))
+    .compose(x -> insertPackageEntry(p32, "Package 32", t32))
+    .compose(x -> insertTitleEntry(te11, t11, "Title 11", "1111-1111", "1111-2222"))
+    .compose(x -> insertTitleEntry(te12, t12, "Title 12", "1212-1111", "1212-2222"))
+    .compose(x -> insertTitleEntry(te21, t21, "Title 21", "2121-1111", null       ))
+    .compose(x -> insertTitleEntry(te22, t22, "Title 22", null,        "2222-2222"))
+    .compose(x -> insertTitleEntry(te31, t31, "Title 31", "3131313131"))
+    .compose(x -> insertTitleEntry(te32, t32, "Title 32", "3232323232"))
     .compose(x -> insertTitleData(te11, "2020-03-01", "2020-04-01", false, 1, 2))
     .compose(x -> insertTitleData(te11, "2020-04-01", "2020-04-15", false, 2, 3))
     .compose(x -> insertTitleData(te11, "2020-04-15", "2020-05-01", false, 3, 3))
@@ -203,8 +208,10 @@ public class EusageReportsApiTest {
     .compose(x -> insertTitleData(te21, "2020-03-01", "2020-04-01", false, 0, 0))
     .compose(x -> insertTitleData(te21, "2020-05-01", "2020-06-01", false, 20, 40))
     .compose(x -> insertTitleData(te21, "2020-06-01", "2020-07-01", true, 1, 2))
+    .compose(x -> insertTitleData(te31, "2020-05-01", "2020-06-01", false, 20, 40))
+    .compose(x -> insertTitleData(te32, "2020-06-01", "2020-07-01", true, 1, 2))
 
-    .compose(x -> api.getUseOverTimeJournal(pool, a1, "2020-04-01", "2020-06-01"))
+    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a1, "2020-04-01", "2020-06-01"))
     .onComplete(context.asyncAssertSuccess(json -> {
       assertThat(json.getString("agreementId"), is(a1));
       assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(), contains("2020-04", "2020-05"));
@@ -217,8 +224,8 @@ public class EusageReportsApiTest {
           is(new JsonObject()
               .put("kbId", "11000000-0000-4000-8000-000000000000")
               .put("title", "Title 11")
-              .put("printISSN", null)
-              .put("onlineISSN", null)
+              .put("printISSN", "1111-1111")
+              .put("onlineISSN", "1111-2222")
               .put("accessType", "Controlled")
               .put("metricType", "Total_Item_Requests")
               .put("accessCountTotal", 18)
@@ -228,8 +235,8 @@ public class EusageReportsApiTest {
           is(new JsonObject()
               .put("kbId", "11000000-0000-4000-8000-000000000000")
               .put("title", "Title 11")
-              .put("printISSN", null)
-              .put("onlineISSN", null)
+              .put("printISSN", "1111-1111")
+              .put("onlineISSN", "1111-2222")
               .put("accessType", "Controlled")
               .put("metricType", "Unique_Item_Requests")
               .put("accessCountTotal", 9)
@@ -239,8 +246,8 @@ public class EusageReportsApiTest {
           is(new JsonObject()
               .put("kbId", "11000000-0000-4000-8000-000000000000")
               .put("title", "Title 11")
-              .put("printISSN", null)
-              .put("onlineISSN", null)
+              .put("printISSN", "1111-1111")
+              .put("onlineISSN", "1111-2222")
               .put("accessType", "OA_Gold")
               .put("metricType", "Total_Item_Requests")
               .put("accessCountTotal", null)
@@ -248,7 +255,7 @@ public class EusageReportsApiTest {
               .encodePrettily()));
     }))
     // openAccess
-    .compose(x -> api.getUseOverTimeJournal(pool, a2, "2020-06-01", "2020-07-01"))
+    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a2, "2020-06-01", "2020-07-01"))
     .onComplete(context.asyncAssertSuccess(json -> {
       assertThat(json.getLong("totalItemRequestsTotal"), is(2L));
       assertThat(json.getLong("uniqueItemRequestsTotal"), is(1L));
@@ -262,12 +269,31 @@ public class EusageReportsApiTest {
       assertThat(item3.getLong("accessCountTotal"), is(1L));
     }))
     // time without any data, totals should be null
-    .compose(x -> api.getUseOverTimeJournal(pool, a2, "1999-12-01", "2000-02-01"))
+    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a2, "1999-12-01", "2000-02-01"))
     .onComplete(context.asyncAssertSuccess(json -> {
       assertThat(json.getLong("totalItemRequestsTotal"), is(nullValue()));
       assertThat(json.getLong("uniqueItemRequestsTotal"), is(nullValue()));
       assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining((Long)null, null)));
       assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining((Long)null, null)));
+    }))
+    // book
+    .compose(x -> api.getUseOverTime(pool, /* journal = */ false , a3, "2020-05-01", "2020-07-01"))
+    .onComplete(context.asyncAssertSuccess(json -> {
+      System.out.println(json.encodePrettily());
+      assertThat(json.getLong("totalItemRequestsTotal"), is(42L));
+      assertThat(json.getLong("uniqueItemRequestsTotal"), is(21L));
+      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining(40L, 2L)));
+      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining(20L, 1L)));
+      assertThat(json.getJsonArray("items").getJsonObject(0).encodePrettily(),
+          is(new JsonObject()
+              .put("kbId", "31000000-0000-4000-8000-000000000000")
+              .put("title", "Title 31")
+              .put("ISBN", "3131313131")
+              .put("accessType", "Controlled")
+              .put("metricType", "Total_Item_Requests")
+              .put("accessCountTotal", 40L)
+              .put("accessCountsByPeriod", new JsonArray("[ 40, null ]"))
+              .encodePrettily()));
     }));
   }
 }

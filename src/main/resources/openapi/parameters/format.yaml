@@ -1,6 +1,6 @@
 in: query
 name: format
-description: item format type
+description: item format type; an item is a journal if it has a printISSN or an onlineISSN
 required: true
 schema:
   type: string
