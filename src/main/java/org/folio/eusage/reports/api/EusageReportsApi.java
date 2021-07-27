@@ -1109,14 +1109,14 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
   Future<Void> getUseOverTime(Vertx vertx, RoutingContext ctx) {
     String format = ctx.request().params().get("format");
-    boolean journal;
+    boolean isJournal;
 
     switch (format) {
       case "JOURNAL":
-        journal = true;
+        isJournal = true;
         break;
       case "BOOK":
-        journal = false;
+        isJournal = false;
         break;
       case "DATABASE":
         return getUseOverTimeDatabase(vertx, ctx);
@@ -1129,7 +1129,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     String start = ctx.request().params().get("startDate");
     String end = ctx.request().params().get("endDate");
 
-    return getUseOverTime(pool, journal, agreementId, start, end)
+    return getUseOverTime(pool, isJournal, agreementId, start, end)
         .map(json -> {
           ctx.response().setStatusCode(200);
           ctx.response().putHeader("Content-Type", "application/json");
@@ -1139,7 +1139,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<JsonObject> getUseOverTime(TenantPgPool pool,
-      boolean journal, String agreementId, String start, String end) {
+      boolean isJournal, String agreementId, String start, String end) {
 
     LocalDate startDate = LocalDate.parse(start).withDayOfMonth(1);
     LocalDate endDate = LocalDate.parse(end).withDayOfMonth(1);
@@ -1160,13 +1160,13 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     } while (date.compareTo(endDate) < 0);
 
     StringBuilder sql = new StringBuilder();
-    useOverTime(sql, pool, journal, true, true, accessCountPeriods.size());
+    useOverTime(sql, pool, isJournal, true, true, accessCountPeriods.size());
     sql.append(" UNION ");
-    useOverTime(sql, pool, journal, true, false, accessCountPeriods.size());
+    useOverTime(sql, pool, isJournal, true, false, accessCountPeriods.size());
     sql.append(" UNION ");
-    useOverTime(sql, pool, journal, false, true, accessCountPeriods.size());
+    useOverTime(sql, pool, isJournal, false, true, accessCountPeriods.size());
     sql.append(" UNION ");
-    useOverTime(sql, pool, journal, false, false, accessCountPeriods.size());
+    useOverTime(sql, pool, isJournal, false, false, accessCountPeriods.size());
     sql.append(" ORDER BY title, kbId, accessType, metricType");
 
     return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
@@ -1177,7 +1177,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         JsonArray accessCountsByPeriod = new JsonArray();
         LongAdder accessCountTotal = new LongAdder();
         boolean unique = "Unique_Item_Requests".equals(row.getString("metrictype"));
-        int pos0 = journal ? 6 : 5;
+        final int journalColumnsToSkip = 6;
+        final int bookColumnsToSkip = 5;
+        int pos0 = isJournal ? journalColumnsToSkip : bookColumnsToSkip;
         for (int i = 0; i < accessCountPeriods.size(); i++) {
           Long l = row.getLong(pos0 + i);
           accessCountsByPeriod.add(l);
@@ -1191,7 +1193,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         JsonObject json = new JsonObject()
             .put("kbId", row.getUUID("kbid"))
             .put("title", row.getString("title"));
-        if (journal) {
+        if (isJournal) {
           json
               .put("printISSN", row.getString("printissn"))
               .put("onlineISSN", row.getString("onlineissn"));
@@ -1244,10 +1246,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
    * </pre>
    */
   private static void useOverTime(StringBuilder sql, TenantPgPool pool,
-      boolean journal, boolean openAccess, boolean unique, int periods) {
+      boolean isJournal, boolean openAccess, boolean unique, int periods) {
 
     sql.append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,")
-        .append(journal ? " printISSN, onlineISSN, "
+        .append(isJournal ? " printISSN, onlineISSN, "
                         : " ISBN, ")
         .append(openAccess ? "'OA_Gold' AS accessType, "
                            : "'Controlled' AS accessType, ")
@@ -1275,7 +1277,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         .append(titleEntriesTable(pool)).append(".id");
     }
     sql.append(" WHERE agreementId = $1 AND ")
-        .append(journal ? "NOT " : "")
+        .append(isJournal ? "NOT " : "")
         .append("(printISSN IS NULL AND onlineISSN IS NULL)");
   }
 
