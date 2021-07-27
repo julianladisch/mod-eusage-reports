@@ -94,12 +94,21 @@ public class ApiIT {
 
   @Test
   public void useOverTime() {
-    given().
-      body("{ \"module_to\": \"99.99.99\" }").
+    String location =
+        given().
+          body("{ \"module_to\": \"99.99.99\" }").
+        when().
+          post("/_/tenant").
+        then().
+          statusCode(201).
+        extract().
+          header("Location");
+
     when().
-      post("/_/tenant").
+      get(location + "?wait=30").
     then().
-      statusCode(201);
+      statusCode(200).
+      body("complete", is(true));
 
     given().
       param("agreementId", "10000000-0000-4000-8000-000000000000").
