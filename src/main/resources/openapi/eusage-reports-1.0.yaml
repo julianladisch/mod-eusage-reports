@@ -10,6 +10,7 @@ paths:
       - $ref: headers/okapi-url.yaml
       - $ref: parameters/offset.yaml
       - $ref: parameters/limit.yaml
+      - $ref: parameters/query.yaml
       - in: query
         name: counterReportId
         required: false

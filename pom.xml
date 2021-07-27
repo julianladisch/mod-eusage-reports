@@ -71,6 +71,11 @@
         <version>4.8.2</version>
       </dependency>
       <dependency>
+        <groupId>org.z3950.zing</groupId>
+        <artifactId>cql-java</artifactId>
+        <version>1.13</version>
+      </dependency>
+      <dependency>
         <groupId>io.rest-assured</groupId>
         <artifactId>rest-assured</artifactId>
         <version>3.0.7</version>
