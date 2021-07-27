@@ -49,6 +49,6 @@
   },
   "additionalProperties": false,
   "required": [
-    "id", "titleEntryId", "counterReportId", "counterReportTitle"
+    "id", "titleEntryId", "counterReportId", "counterReportTitle", "openAccess"
   ]
 }

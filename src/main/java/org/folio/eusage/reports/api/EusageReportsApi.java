@@ -21,7 +21,6 @@ import io.vertx.ext.web.validation.RequestParameter;
 import io.vertx.ext.web.validation.RequestParameters;
 import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.sqlclient.Row;
-import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.RowStream;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
@@ -42,6 +41,7 @@ import org.folio.tlib.TenantInitHooks;
 import org.folio.tlib.postgres.PgCqlField;
 import org.folio.tlib.postgres.PgCqlQuery;
 import org.folio.tlib.postgres.TenantPgPool;
+import org.folio.tlib.util.LongAdder;
 import org.folio.tlib.util.ResourceUtil;
 import org.folio.tlib.util.TenantUtil;
 
@@ -1093,7 +1093,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     }).eventually(x -> con.close()));
   }
 
-  Future<Integer> postFromAgreement(Vertx vertx, RoutingContext ctx) {
+  Future<Void> postFromAgreement(Vertx vertx, RoutingContext ctx) {
     return populateAgreement(vertx, ctx)
         .compose(linesCreated -> {
           if (linesCreated == null) {
@@ -1107,12 +1107,33 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
-  /** Draft, Work in Progress (WIP). */
   Future<Void> getUseOverTime(Vertx vertx, RoutingContext ctx) {
+    String format = ctx.request().params().get("format");
+    switch (format) {
+      case "JOURNAL": return getUseOverTimeJournal(vertx, ctx);
+      case "BOOK": return getUseOverTimeBook(vertx, ctx);
+      case "DATABASE": return getUseOverTimeDatabase(vertx, ctx);
+      default: throw new IllegalArgumentException("format = " + format);
+    }
+  }
+
+  Future<Void> getUseOverTimeJournal(Vertx vertx, RoutingContext ctx) {
     TenantPgPool pool = TenantPgPool.pool(vertx, TenantUtil.tenant(ctx));
     String agreementId = ctx.request().params().get("agreementId");
     String start = ctx.request().params().get("startDate");
     String end = ctx.request().params().get("endDate");
+
+    return getUseOverTimeJournal(pool, agreementId, start, end)
+        .map(json -> {
+          ctx.response().setStatusCode(200);
+          ctx.response().putHeader("Content-Type", "application/json");
+          ctx.response().end(json.encodePrettily());
+          return null;
+        });
+  }
+
+  Future<JsonObject> getUseOverTimeJournal(TenantPgPool pool,
+      String agreementId, String start, String end) {
 
     LocalDate startDate = LocalDate.parse(start).withDayOfMonth(1);
     LocalDate endDate = LocalDate.parse(end).withDayOfMonth(1);
@@ -1123,80 +1144,172 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     endDate.plusMonths(1);  // PostgreSQL range end value is exclusive
 
     LocalDate date = startDate;
+    JsonArray accessCountPeriods = new JsonArray();
+    Tuple tuple = Tuple.of(UUID.fromString(agreementId), date);
     do {
+      accessCountPeriods.add(date.toString().substring(0, 7));
       LocalDate datePlusOne = date.plusMonths(1);
-      journal(pool, agreementId, date, datePlusOne);
       date = datePlusOne;
+      tuple.addLocalDate(date);
     } while (date.compareTo(endDate) < 0);
 
-    // draft, Work in Progress (WIP), hardcoded example JSON
+    StringBuilder sql = new StringBuilder();
+    useOverTimeJournal(sql, pool, true, true, accessCountPeriods.size());
+    sql.append(" UNION ");
+    useOverTimeJournal(sql, pool, true, false, accessCountPeriods.size());
+    sql.append(" UNION ");
+    useOverTimeJournal(sql, pool, false, true, accessCountPeriods.size());
+    sql.append(" UNION ");
+    useOverTimeJournal(sql, pool, false, false, accessCountPeriods.size());
+    sql.append(" ORDER BY title, kbId, accessType, metricType");
+
+    return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
+      JsonArray items = new JsonArray();
+      LongAdder [] totalItemRequestsByPeriod = LongAdder.arrayOfLength(accessCountPeriods.size());
+      LongAdder [] uniqueItemRequestsByPeriod = LongAdder.arrayOfLength(accessCountPeriods.size());
+      rowSet.forEach(row -> {
+        JsonArray accessCountsByPeriod = new JsonArray();
+        boolean unique = "Unique_Item_Requests".equals(row.getString("metrictype"));
+        for (int i = 0; i < accessCountPeriods.size(); i++) {
+          Long l = row.getLong(7 + i);
+          accessCountsByPeriod.add(l);
+          if (unique) {
+            uniqueItemRequestsByPeriod[i].add(l);
+          } else {
+            totalItemRequestsByPeriod[i].add(l);
+          }
+        }
+        items.add(new JsonObject()
+            .put("kbId", row.getUUID("kbid"))
+            .put("title", row.getString("title"))
+            .put("printISSN", row.getString("printissn"))
+            .put("onlineISSN", row.getString("onlineissn"))
+            .put("accessType", row.getString("accesstype"))
+            .put("metricType", row.getString("metrictype"))
+            .put("accessCountTotal", row.getLong("accesscounttotal"))
+            .put("accessCountsByPeriod", accessCountsByPeriod)
+        );
+      });
+      return new JsonObject()
+          .put("agreementId", agreementId)
+          .put("accessCountPeriods", accessCountPeriods)
+          .put("totalItemRequestsTotal", LongAdder.sum(totalItemRequestsByPeriod))
+          .put("totalItemRequestsByPeriod", LongAdder.longArray(totalItemRequestsByPeriod))
+          .put("uniqueItemRequestsTotal", LongAdder.sum(uniqueItemRequestsByPeriod))
+          .put("uniqueItemRequestsByPeriod", LongAdder.longArray(uniqueItemRequestsByPeriod))
+          .put("items", items);
+    });
+  }
+
+  /**
+   * Append to <code>sql</code>. The appended SELECT statement is like this:
+   *
+   * <pre>
+   * SELECT title_entries.kbTitleId AS kbId,
+   *        kbTitleName, printISSN, onlineISSN,
+   *        'OA_Gold' AS accessType, 'Unique_Item_Requests' AS metricType,
+   *        n0 + n1 AS total,
+   *        n0, n1
+   * FROM title_entries
+   * JOIN agreement_entries ON agreement_entries.kbTitleId = title_entries.id
+   * LEFT JOIN (
+   *   SELECT titleEntryId, sum(uniqueAcessCount) AS n0
+   *   FROM title_data
+   *   WHERE daterange($2, $3) @> lower(usageDateRange) AND openAccess
+   *   GROUP BY titleEntryId
+   * ) t0 ON t0.titleEntryId = title_entries.id
+   * LEFT JOIN (
+   *   SELECT titleEntryId, sum(uniqueAccessCount) AS n1
+   *   FROM title_data
+   *   WHERE daterange($3, $4) @> lower(usageDateRange) AND openAccess
+   *   GROUP BY titleEntryId
+   * ) t1 ON t1.titleEntryId = title_entries.id
+   * WHERE agreementId = $1;
+   * </pre>
+   */
+  private static void useOverTimeJournal(StringBuilder sql, TenantPgPool pool,
+      boolean openAccess, boolean unique, int periods) {
+
+    sql.append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
+        + " printISSN, onlineISSN, ")
+        .append(openAccess ? "'OA_Gold' AS accessType, "
+                           : "'Controlled' AS accessType, ")
+        .append(unique ? "'Unique_Item_Requests' AS metricType, "
+                       : "'Total_Item_Requests' AS metricType, ");
+    for (int i = 0; i < periods; i++) {
+      if (i > 0) {
+        sql.append(" + ");
+      }
+      sql.append('n').append(i);
+    }
+    sql.append(" AS accessCountTotal");
+    for (int i = 0; i < periods; i++) {
+      sql.append(", ").append('n').append(i);
+    }
+    sql
+    .append(" FROM ").append(titleEntriesTable(pool))
+    .append(" JOIN ").append(agreementEntriesTable(pool)).append(" USING (kbTitleId)");
+    for (int i = 0; i < periods; i++) {
+      sql.append(" LEFT JOIN (")
+      .append(" SELECT titleEntryId, sum(")
+        .append(unique ? "uniqueAccessCount" : "totalAccessCount").append(") AS n").append(i)
+      .append(" FROM ").append(titleDataTable(pool))
+      .append(" WHERE daterange($").append(i + 2).append(", $").append(i + 3)
+        .append(") @> lower(usageDateRange)")
+        .append(openAccess ? " AND openAccess" : " AND NOT openAccess")
+      .append(" GROUP BY titleEntryId")
+      .append(" ) t").append(i).append(" ON t").append(i).append(".titleEntryId = ")
+        .append(titleEntriesTable(pool)).append(".id");
+    }
+    sql.append(" WHERE agreementId = $1");
+  }
+
+  Future<Void> getUseOverTimeBook(Vertx vertx, RoutingContext ctx) {
+    // Work in Progress (WIP), hardcoded example JSON
     ctx.response().setStatusCode(200);
     ctx.response().putHeader("Content-Type", "application/json");
-    ctx.response().end(ResourceUtil.load("/openapi/examples/report.json"));
+    ctx.response().end(ResourceUtil.load("/openapi/examples/report.json"));  // FIXME
 
     return Future.succeededFuture();
   }
 
-  /** Draft, Work in Progress (WIP). */
-  Future<RowSet<Row>> journal(
-      TenantPgPool pool, String agreementId, LocalDate date, LocalDate datePlusOne) {
+  Future<Void> getUseOverTimeDatabase(Vertx vertx, RoutingContext ctx) {
+    // Work in Progress (WIP), hardcoded example JSON
+    ctx.response().setStatusCode(200);
+    ctx.response().putHeader("Content-Type", "application/json");
+    ctx.response().end(ResourceUtil.load("/openapi/examples/report.json"));  // FIXME
 
-    return pool.preparedQuery(
-        "SELECT kbtitleid, min(kbtitlename) AS title, sum(COALESCE(uniqueaccesscount, 0))"
-            + " FROM " + agreementEntriesTable(pool)
-            + " LEFT JOIN " + packageEntriesTable(pool) + " USING (kbpackageid, kbtitleid)"
-            + " LEFT JOIN " + titleEntriesTable(pool) + " USING (kbtitleid)"
-            + " LEFT JOIN " + titleDataTable(pool)
-            + "   ON " + titleEntriesTable(pool) + ".id = "
-            +     titleDataTable(pool) + ".titleentryid"
-            + "   AND daterange($2, $3) @> lower(usagedaterange)"
-            + " WHERE agreementid=$1"
-            + " GROUP BY kbtitleid"
-            + " ORDER BY title, kbtitleid"
-        ).execute(Tuple.of(agreementId, date, datePlusOne));
+    return Future.succeededFuture();
+  }
+
+  private void add(RouterBuilder routerBuilder,
+      String operationId, Function<RoutingContext, Future<Void>> function) {
+
+    routerBuilder
+    .operation(operationId)
+    .handler(ctx -> {
+      try {
+        function.apply(ctx)
+            .onFailure(cause -> failHandler(400, ctx, cause));
+      } catch (Throwable t) {
+        failHandler(400, ctx, t);
+      }
+    }).failureHandler(EusageReportsApi::failHandler);
   }
 
   @Override
   public Future<Router> createRouter(Vertx vertx, WebClient webClient) {
     this.webClient = webClient;
     return RouterBuilder.create(vertx, "openapi/eusage-reports-1.0.yaml")
-        .compose(routerBuilder -> {
-          routerBuilder
-              .operation("getReportTitles")
-              .handler(ctx -> getReportTitles(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-              .operation("postReportTitles")
-              .handler(ctx -> postReportTitles(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-              .operation("postFromCounter")
-              .handler(ctx -> postFromCounter(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-              .operation("getTitleData")
-              .handler(ctx -> getTitleData(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-              .operation("getReportData")
-              .handler(ctx -> getReportData(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-              .operation("postFromAgreement")
-              .handler(ctx -> postFromAgreement(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-              .failureHandler(EusageReportsApi::failHandler);
-          routerBuilder
-               .operation("getUseOverTime")
-               .handler(ctx -> getUseOverTime(vertx, ctx)
-                  .onFailure(cause -> failHandler(400, ctx, cause)))
-               .failureHandler(EusageReportsApi::failHandler);
-          return Future.succeededFuture(routerBuilder.createRouter());
+        .map(routerBuilder -> {
+          add(routerBuilder, "getReportTitles", ctx -> getReportTitles(vertx, ctx));
+          add(routerBuilder, "postReportTitles", ctx -> postReportTitles(vertx, ctx));
+          add(routerBuilder, "postFromCounter", ctx -> postFromCounter(vertx, ctx));
+          add(routerBuilder, "getTitleData", ctx -> getTitleData(vertx, ctx));
+          add(routerBuilder, "getReportData", ctx -> getReportData(vertx, ctx));
+          add(routerBuilder, "postFromAgreement", ctx -> postFromAgreement(vertx, ctx));
+          add(routerBuilder, "getUseOverTime", ctx -> getUseOverTime(vertx, ctx));
+          return routerBuilder.createRouter();
         });
   }
 
@@ -1249,7 +1362,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + "usageDateRange daterange,"
             + "uniqueAccessCount integer, "
             + "totalAccessCount integer, "
-            + "openAccess boolean"
+            + "openAccess boolean NOT NULL"
             + ")")
         .execute().mapEmpty());
     future = future.compose(x -> pool
