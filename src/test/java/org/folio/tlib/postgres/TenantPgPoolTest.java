@@ -1,13 +1,18 @@
 package org.folio.tlib.postgres;
 
+import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.MatcherAssert.assertThat;
+
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.ext.unit.TestContext;
 import io.vertx.ext.unit.junit.VertxUnitRunner;
-import io.vertx.pgclient.PgConnectOptions;
+import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
 import java.io.IOException;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.function.Function;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.folio.tlib.postgres.impl.TenantPgPoolImpl;
@@ -34,8 +39,6 @@ public class TenantPgPoolTest {
   static final String CONF_BAK_PATH = "/var/lib/postgresql/data/postgresql.conf.bak";
 
   static Vertx vertx;
-
-  private static PgConnectOptions pgConnectOptions;
 
   // execute commands in container (stolen from Okapi's PostgresHandleTest
   static void exec(String... command) {
@@ -75,8 +78,6 @@ public class TenantPgPoolTest {
     exec("chown", "postgres.postgres", KEY_PATH, CRT_PATH);
     exec("chmod", "400", KEY_PATH, CRT_PATH);
     exec("cp", "-p", CONF_PATH, CONF_BAK_PATH);
-
-    pgConnectOptions = TenantPgPool.getDefaultConnectOptions();
   }
 
   @AfterClass
@@ -86,8 +87,19 @@ public class TenantPgPoolTest {
 
   @Before
   public void before() {
-    TenantPgPoolImpl.setServerPem(null);
-    TenantPgPoolImpl.setModule("mod-a");
+    configure();  // default postgresql.conf
+    TenantPgPool.setServerPem(null);
+    TenantPgPool.setModule("mod-foo");
+  }
+
+  /**
+   * Create a TenantPgPool, run the mapper on it, close the pool,
+   * and return the result from the mapper.
+   */
+  private <T> Future<T> withPool(Function<TenantPgPool, Future<T>> mapper) {
+    TenantPgPool pool = TenantPgPool.pool(vertx, "diku");
+    Future<T> future = mapper.apply(pool);
+    return future.eventually(x -> pool.close());
   }
 
   @Test(expected = IllegalArgumentException.class)
@@ -103,69 +115,68 @@ public class TenantPgPoolTest {
 
   @Test
   public void queryOk(TestContext context) {
-    TenantPgPool pool = TenantPgPool.pool(vertx, "diku");
-    pool.query("SELECT count(*) FROM pg_database")
-        .execute()
-        .compose(x -> pool.close())
-        .onComplete(context.asyncAssertSuccess());
+    withPool(pool -> pool
+        .query("SELECT count(*) FROM pg_database")
+        .execute())
+    .onComplete(context.asyncAssertSuccess());
   }
 
   @Test
   public void preparedQueryOk(TestContext context) {
-    TenantPgPool pool = TenantPgPool.pool(vertx, "diku");
-    pool.preparedQuery("SELECT * FROM pg_database WHERE datname=$1")
-        .execute(Tuple.of("postgres"))
-        .onComplete(context.asyncAssertSuccess(res ->
-          pool.close(context.asyncAssertSuccess())
-        ));
+    withPool(pool -> pool
+        .preparedQuery("SELECT * FROM pg_database WHERE datname=$1")
+        .execute(Tuple.of("postgres")))
+    .onComplete(context.asyncAssertSuccess());
   }
+
+  @Test
+  public void applicationName(TestContext context) {
+    withPool(pool -> pool
+        .query("SELECT application_name FROM pg_stat_activity WHERE pid = pg_backend_pid()")
+        .execute())
+    .onComplete(context.asyncAssertSuccess(rowSet -> {
+      assertThat(rowSet.iterator().next().getString(0), is("mod_foo"));
+    }));
+  }
+
   @Test
   public void getConnection1(TestContext context) {
-    TenantPgPool pool = TenantPgPool.pool(vertx, "diku");
-    pool.getConnection()
-        .compose(con -> con.query("SELECT count(*) FROM pg_database")
-            .execute()
-            .eventually(c -> con.close()))
-        .onComplete(context.asyncAssertSuccess());
+    withPool(pool -> pool.withConnection(con ->
+        con.query("SELECT count(*) FROM pg_database").execute()))
+    .onComplete(context.asyncAssertSuccess());
   }
 
   @Test
   public void getConnection2(TestContext context) {
-    TenantPgPool pool = TenantPgPool.pool(vertx, "diku");
-    pool.getConnection(
-        context.asyncAssertSuccess(
-            con -> con.query("SELECT count(*) FROM pg_database")
-                .execute()
-                .eventually(c -> con.close())
-                .onComplete(context.asyncAssertSuccess())));
+    withPool(pool ->
+        Future.<SqlConnection>future(promise -> pool.getConnection(promise))
+        .compose(con -> con.query("SELECT count(*) FROM pg_database").execute()))
+    .onComplete(context.asyncAssertSuccess());
   }
 
   @Test
   public void execute1(TestContext context) {
-    TenantPgPool pool = TenantPgPool.pool(vertx, "diku");
-
     List<String> list = new LinkedList<>();
     list.add("CREATE TABLE a (year int)");
     list.add("SELECT * FROM a");
     list.add("DROP TABLE a");
-    pool.execute(list).onComplete(context.asyncAssertSuccess());
+    withPool(pool -> pool.execute(list))
+    .onComplete(context.asyncAssertSuccess());
   }
 
   @Test
   public void execute2(TestContext context) {
-    log.info("SSL={}", pgConnectOptions.getSslMode());
-    TenantPgPool pool = TenantPgPool.pool(vertx, "diku");
-
     // execute not using a transaction as this test shows.
     List<String> list = new LinkedList<>();
     list.add("CREATE TABLE a (year int)");
-    list.add("SELECT * FROM a");
-    list.add("DROP TABLOIDS a"); // fails
-    pool.execute(list).onComplete(context.asyncAssertFailure(c -> {
-      List<String> list2 = new LinkedList<>();
-      list2.add("DROP TABLE a"); // better now
-      pool.execute(list2).onComplete(context.asyncAssertSuccess());
-    }));
+    list.add("ALTER TABLE a RENAME TO b");  // renames
+    list.add("DROP TABLOIDS b");            // fails
+    list.add("ALTER TABLE b RENAME TO c");  // not executed
+    withPool(pool ->
+        pool.execute(list)
+        .onComplete(context.asyncAssertFailure())
+        .recover(x -> pool.execute(List.of("DROP TABLE b")))) // better now
+    .onComplete(context.asyncAssertSuccess());
   }
 
   @Test
@@ -175,13 +186,12 @@ public class TenantPgPoolTest {
     TenantPgPool.setServerPem(new String(TenantPgPoolTest.class.getClassLoader()
         .getResourceAsStream("server.crt").readAllBytes()));
 
-    TenantPgPool pool = TenantPgPool.pool(vertx, "diku");
-    pool.query("SELECT version FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
-        .execute()
-        .onComplete(context.asyncAssertSuccess(rowSet -> {
-          context.assertEquals("TLSv1.3", rowSet.iterator().next().getString(0));
-          pool.close(context.asyncAssertSuccess(res -> configure("ssl=off")));
-        }));
+    withPool(pool -> pool
+        .query("SELECT version FROM pg_stat_ssl WHERE pid = pg_backend_pid()")
+        .execute())
+    .onComplete(context.asyncAssertSuccess(rowSet -> {
+      assertThat(rowSet.iterator().next().getString(0), is("TLSv1.3"));
+    }));
   }
 
 }
