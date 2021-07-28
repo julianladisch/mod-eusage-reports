@@ -98,10 +98,24 @@ public class EusageReportsApiTest {
   }
 
   @Test
-  public void useOverTimeStartDateAfterEndDate() {
+  public void useOverTimeStartDateAfterEndDateJournalMonth() {
     Throwable t = assertThrows(IllegalArgumentException.class, () ->
-        getUseOverTime("JOURNAL", "2020-04-01", "2020-02-01"));
-    assertThat(t.getMessage(), is("startDate=2020-04-01 is after endDate=2020-02-01"));
+    getUseOverTime("JOURNAL", "2020-04", "2020-02"));
+    assertThat(t.getMessage(), is("startDate=2020-04 is after endDate=2020-02"));
+  }
+
+  @Test
+  public void useOverTimeStartDateAfterEndDateBookYear() {
+    Throwable t = assertThrows(IllegalArgumentException.class, () ->
+    getUseOverTime("BOOK", "2021", "2020"));
+    assertThat(t.getMessage(), is("startDate=2021 is after endDate=2020"));
+  }
+
+  @Test
+  public void useOverTimeStartDateEndDateLengthMismatch() {
+    Throwable t = assertThrows(IllegalArgumentException.class, () ->
+    getUseOverTime("JOURNAL", "2019-05", "2021"));
+    assertThat(t.getMessage(), is("startDate and endDate must have same length: 2019-05 2021"));
   }
 
   @Test
@@ -211,7 +225,7 @@ public class EusageReportsApiTest {
     .compose(x -> insertTitleData(te31, "2020-05-01", "2020-06-01", false, 20, 40))
     .compose(x -> insertTitleData(te32, "2020-06-01", "2020-07-01", true, 1, 2))
 
-    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a1, "2020-04-01", "2020-06-01"))
+    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a1, "2020-04", "2020-05"))
     .onComplete(context.asyncAssertSuccess(json -> {
       assertThat(json.getString("agreementId"), is(a1));
       assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(), contains("2020-04", "2020-05"));
@@ -255,7 +269,7 @@ public class EusageReportsApiTest {
               .encodePrettily()));
     }))
     // openAccess
-    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a2, "2020-06-01", "2020-07-01"))
+    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a2, "2020-06", "2020-06"))
     .onComplete(context.asyncAssertSuccess(json -> {
       assertThat(json.getLong("totalItemRequestsTotal"), is(2L));
       assertThat(json.getLong("uniqueItemRequestsTotal"), is(1L));
@@ -269,15 +283,15 @@ public class EusageReportsApiTest {
       assertThat(item3.getLong("accessCountTotal"), is(1L));
     }))
     // time without any data, totals should be null
-    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a2, "1999-12-01", "2000-02-01"))
+    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a2, "1999", "1999"))
     .onComplete(context.asyncAssertSuccess(json -> {
       assertThat(json.getLong("totalItemRequestsTotal"), is(nullValue()));
       assertThat(json.getLong("uniqueItemRequestsTotal"), is(nullValue()));
-      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining((Long)null, null)));
-      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining((Long)null, null)));
+      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining((Long)null)));
+      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining((Long)null)));
     }))
     // book
-    .compose(x -> api.getUseOverTime(pool, /* journal = */ false , a3, "2020-05-01", "2020-07-01"))
+    .compose(x -> api.getUseOverTime(pool, /* journal = */ false , a3, "2020-05", "2020-06"))
     .onComplete(context.asyncAssertSuccess(json -> {
       System.out.println(json.encodePrettily());
       assertThat(json.getLong("totalItemRequestsTotal"), is(42L));
