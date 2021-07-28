@@ -25,6 +25,7 @@ import io.vertx.sqlclient.RowStream;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
 import java.time.LocalDate;
+import java.time.Period;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -1141,23 +1142,27 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   Future<JsonObject> getUseOverTime(TenantPgPool pool,
       boolean isJournal, String agreementId, String start, String end) {
 
-    LocalDate startDate = LocalDate.parse(start).withDayOfMonth(1);
-    LocalDate endDate = LocalDate.parse(end).withDayOfMonth(1);
-    if (startDate.compareTo(endDate) > 0) {
+    if (start.length() != end.length()) {
+      throw new IllegalArgumentException(
+          "startDate and endDate must have same length: " + start + " " + end);
+    }
+    if (start.compareTo(end) > 0) {
       throw new IllegalArgumentException("startDate=" + start + " is after endDate=" + end);
     }
-
-    endDate.plusMonths(1);  // PostgreSQL range end value is exclusive
-
+    boolean isYear = start.length() == 4;
+    start += isYear ? "-01-01" : "-01";
+    end   += isYear ? "-01-01" : "-01";
+    LocalDate startDate = LocalDate.parse(start);
+    LocalDate endDate = LocalDate.parse(end);
+    Period period = isYear ? Period.ofYears(1) : Period.ofMonths(1);
     LocalDate date = startDate;
     JsonArray accessCountPeriods = new JsonArray();
     Tuple tuple = Tuple.of(UUID.fromString(agreementId), date);
     do {
-      accessCountPeriods.add(date.toString().substring(0, 7));
-      LocalDate datePlusOne = date.plusMonths(1);
-      date = datePlusOne;
+      accessCountPeriods.add(date.toString().substring(0, isYear ? 4 : 7));
+      date = date.plus(period);
       tuple.addLocalDate(date);
-    } while (date.compareTo(endDate) < 0);
+    } while (date.compareTo(endDate) <= 0);
 
     StringBuilder sql = new StringBuilder();
     useOverTime(sql, pool, isJournal, true, true, accessCountPeriods.size());
