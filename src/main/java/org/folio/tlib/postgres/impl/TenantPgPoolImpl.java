@@ -98,6 +98,9 @@ public class TenantPgPoolImpl implements TenantPgPool {
       throw new IllegalStateException("TenantPgPool.setModule must be called");
     }
     PgConnectOptions connectOptions = pgConnectOptions;
+    // overwrite default "vertx-pg-client" shown in pg_stat_activity
+    // https://www.postgresql.org/docs/current/runtime-config-logging.html#GUC-APPLICATION-NAME
+    connectOptions.getProperties().put("application_name", module);
     if (host != null) {
       connectOptions.setHost(substTenant(host, tenant));
     }
