@@ -350,4 +350,12 @@ public class EusageReportsApiTest {
       System.out.println(json.encodePrettily());
     }));
   }
+
+  @Test
+  public void reqsByPubYearWithoutData(TestContext context) {
+    getReqsByPubYear(true, a1, "2999-04", "2999-05", "1Y")
+    .onComplete(context.asyncAssertSuccess(json -> {
+      assertThat(json.getJsonArray("accessCountPeriods").encode(), is("[]"));
+    }));
+  }
 }
