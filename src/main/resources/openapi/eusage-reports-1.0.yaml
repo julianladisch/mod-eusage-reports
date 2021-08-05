@@ -153,8 +153,6 @@ paths:
       - $ref: headers/okapi-tenant.yaml
       - $ref: headers/okapi-token.yaml
       - $ref: headers/okapi-url.yaml
-      - $ref: parameters/offset.yaml
-      - $ref: parameters/limit.yaml
       - $ref: parameters/agreement-id.yaml
       - $ref: parameters/start-date.yaml
       - $ref: parameters/end-date.yaml
@@ -210,8 +208,6 @@ paths:
       - $ref: headers/okapi-tenant.yaml
       - $ref: headers/okapi-token.yaml
       - $ref: headers/okapi-url.yaml
-      - $ref: parameters/offset.yaml
-      - $ref: parameters/limit.yaml
       - $ref: parameters/agreement-id.yaml
       - $ref: parameters/start-date.yaml
       - $ref: parameters/end-date.yaml
@@ -227,7 +223,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: schemas/reportDataEntries.json
+                $ref: schemas/report.json
         "400":
           $ref: "#/components/responses/trait_400"
         "404":

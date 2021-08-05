@@ -1,6 +1,8 @@
 package org.folio.tlib.api;
 
 import static org.hamcrest.CoreMatchers.is;
+import static org.hamcrest.CoreMatchers.nullValue;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.collection.IsIterableContainingInOrder.contains;
 import static io.restassured.RestAssured.given;
 import static io.restassured.RestAssured.when;
@@ -92,8 +94,7 @@ public class ApiIT {
       body(is("OK"));
   }
 
-  @Test
-  public void useOverTime() {
+  private void postTenant() {
     String location =
         given().
           body("{ \"module_to\": \"99.99.99\" }").
@@ -109,7 +110,11 @@ public class ApiIT {
     then().
       statusCode(200).
       body("complete", is(true));
+  }
 
+  @Test
+  public void useOverTime() {
+    postTenant();
     given().
       param("agreementId", "10000000-0000-4000-8000-000000000000").
       param("startDate", "2020-03").
@@ -120,6 +125,23 @@ public class ApiIT {
     then().
       statusCode(200).
       body("accessCountPeriods", contains("2020-03", "2020-04"));
+  }
+
+  @Test
+  public void reqsByPubYear() {
+    postTenant();
+    given().
+      param("agreementId", "10000000-0000-4000-8000-000000000000").
+      param("startDate", "2020-03").
+      param("endDate", "2020-04").
+      param("periodOfUse", "1Y").
+    when().
+      get("/eusage-reports/stored-reports/reqs-by-pub-year").
+    then().
+      statusCode(200).
+      body("agreementId", is("10000000-0000-4000-8000-000000000000")).
+      body("totalItemRequestsTotal", is(nullValue())).
+      body("accessCountPeriods", is(empty()));
   }
 
 }

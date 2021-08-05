@@ -29,6 +29,7 @@ import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.Tuple;
 import org.folio.tlib.postgres.TenantPgPool;
 import org.folio.tlib.postgres.TenantPgPoolContainer;
+import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
 import org.junit.Rule;
@@ -69,7 +70,15 @@ public class EusageReportsApiTest {
         "CREATE ROLE {schema} PASSWORD 'tenant' NOSUPERUSER NOCREATEDB INHERIT LOGIN",
         "GRANT {schema} TO CURRENT_USER",
         "CREATE SCHEMA {schema} AUTHORIZATION {schema}"
-    )).onComplete(context.asyncAssertSuccess());
+    ))
+    .compose(x -> new EusageReportsApi().postInit(vertx, tenant, new JsonObject().put("module_to", "1.1.1")))
+    .compose(x -> loadSampleData())
+    .onComplete(context.asyncAssertSuccess());
+  }
+
+  @Before
+  public void setUp(TestContext context) {
+    vertx.exceptionHandler(context.exceptionHandler()); // Report uncaught exceptions
   }
 
   @Test
@@ -131,101 +140,109 @@ public class EusageReportsApiTest {
   }
 
   // agreementId
-  String a1  = "10000000-0000-4000-8000-000000000000";
-  String a2  = "20000000-0000-4000-8000-000000000000";
-  String a3  = "20000000-0000-4000-8000-000000000000";
+  static String a1  = "10000000-0000-4000-8000-000000000000";
+  static String a2  = "20000000-0000-4000-8000-000000000000";
+  static String a3  = "20000000-0000-4000-8000-000000000000";
   // kbTitleId
-  String t11 = "11000000-0000-4000-8000-000000000000";
-  String t12 = "12000000-0000-4000-8000-000000000000";
-  String t21 = "21000000-0000-4000-8000-000000000000";
-  String t22 = "22000000-0000-4000-8000-000000000000";
-  String t31 = "31000000-0000-4000-8000-000000000000";
-  String t32 = "32000000-0000-4000-8000-000000000000";
+  static String t11 = "11000000-0000-4000-8000-000000000000";
+  static String t12 = "12000000-0000-4000-8000-000000000000";
+  static String t21 = "21000000-0000-4000-8000-000000000000";
+  static String t22 = "22000000-0000-4000-8000-000000000000";
+  static String t31 = "31000000-0000-4000-8000-000000000000";
+  static String t32 = "32000000-0000-4000-8000-000000000000";
   // kbPackageId
-  String p11 = "1100000a-0000-4000-8000-000000000000";
-  String p12 = "1200000a-0000-4000-8000-000000000000";
-  String p21 = "2100000a-0000-4000-8000-000000000000";
-  String p22 = "2200000a-0000-4000-8000-000000000000";
-  String p31 = "3100000a-0000-4000-8000-000000000000";
-  String p32 = "3200000a-0000-4000-8000-000000000000";
+  static String p11 = "1100000a-0000-4000-8000-000000000000";
+  static String p12 = "1200000a-0000-4000-8000-000000000000";
+  static String p21 = "2100000a-0000-4000-8000-000000000000";
+  static String p22 = "2200000a-0000-4000-8000-000000000000";
+  static String p31 = "3100000a-0000-4000-8000-000000000000";
+  static String p32 = "3200000a-0000-4000-8000-000000000000";
   // titleEntryId
-  String te11 = "1100000e-0000-4000-8000-000000000000";
-  String te12 = "1200000e-0000-4000-8000-000000000000";
-  String te21 = "2100000e-0000-4000-8000-000000000000";
-  String te22 = "2200000e-0000-4000-8000-000000000000";
-  String te31 = "3100000e-0000-4000-8000-000000000000";
-  String te32 = "3200000e-0000-4000-8000-000000000000";
+  static String te11 = "1100000e-0000-4000-8000-000000000000";
+  static String te12 = "1200000e-0000-4000-8000-000000000000";
+  static String te21 = "2100000e-0000-4000-8000-000000000000";
+  static String te22 = "2200000e-0000-4000-8000-000000000000";
+  static String te31 = "3100000e-0000-4000-8000-000000000000";
+  static String te32 = "3200000e-0000-4000-8000-000000000000";
 
-  private Future<RowSet<Row>> insertAgreement(String agreementId, String titleId, String packageId) {
+  private static Future<RowSet<Row>> insertAgreement(String agreementId, String titleId, String packageId) {
     return pool.preparedQuery("INSERT INTO " + agreementEntriesTable(pool)
         + "(id, agreementId, kbTitleId, kbPackageId) VALUES ($1, $2, $3, $4)")
     .execute(Tuple.of(UUID.randomUUID(), agreementId, titleId, packageId));
   }
 
-  private Future<RowSet<Row>> insertPackageEntry(String packageId, String packageName, String titleId) {
+  private static Future<RowSet<Row>> insertPackageEntry(String packageId, String packageName, String titleId) {
     return pool.preparedQuery("INSERT INTO " + packageEntriesTable(pool)
         + "(kbPackageId, kbPackageName, kbTitleId) VALUES ($1, $2, $3)")
     .execute(Tuple.of(packageId, packageName, titleId));
   }
 
-  private Future<RowSet<Row>> insertTitleEntry(String titleEntryId,
+  private static Future<RowSet<Row>> insertTitleEntry(String titleEntryId,
       String titleId, String titleName, String printISSN, String onlineISSN) {
     return pool.preparedQuery("INSERT INTO " + titleEntriesTable(pool)
         + "(id, kbTitleId, kbTitleName, printISSN, onlineISSN) VALUES ($1, $2, $3, $4, $5)")
     .execute(Tuple.of(titleEntryId, titleId, titleName, printISSN, onlineISSN));
   }
 
-  private Future<RowSet<Row>> insertTitleEntry(String titleEntryId,
+  private static Future<RowSet<Row>> insertTitleEntry(String titleEntryId,
       String titleId, String titleName, String isbn) {
     return pool.preparedQuery("INSERT INTO " + titleEntriesTable(pool)
         + "(id, kbTitleId, kbTitleName, ISBN) VALUES ($1, $2, $3, $4)")
     .execute(Tuple.of(titleEntryId, titleId, titleName, isbn));
   }
 
-  private Future<RowSet<Row>> insertTitleData(String titleEntryId,
-      String dateStart, String dateEnd, boolean openAccess, int uniqueAccessCount, int totalAccessCount) {
+  private static Future<RowSet<Row>> insertTitleData(String titleEntryId,
+      String dateStart, String dateEnd, int publicationYear,
+      boolean openAccess, int uniqueAccessCount, int totalAccessCount) {
+
     return pool.preparedQuery("INSERT INTO " + titleDataTable(pool)
-        + "(id, titleEntryId, usageDateRange, openAccess, uniqueAccessCount, totalAccessCount) "
-        + "VALUES ($1, $2, daterange($3::text::date, $4::text::date), $5, $6, $7)")
-    .execute(Tuple.of(UUID.randomUUID(), titleEntryId, dateStart, dateEnd, openAccess, uniqueAccessCount, totalAccessCount));
+        + "(id, titleEntryId, usageDateRange, publicationDate, openAccess, uniqueAccessCount, totalAccessCount) "
+        + "VALUES ($1, $2, daterange($3::text::date, $4::text::date), $5::text::date, $6, $7, $8)")
+    .execute(Tuple.of(UUID.randomUUID(), titleEntryId, dateStart, dateEnd, publicationYear + "-01-01",
+        openAccess, uniqueAccessCount, totalAccessCount));
+  }
+
+  private static Future<Void> loadSampleData() {
+    return insertAgreement(a1, t11, p11)
+        .compose(x -> insertAgreement(a1, t12, p12))
+        .compose(x -> insertAgreement(a2, t21, p21))
+        .compose(x -> insertAgreement(a2, t22, p22))
+        .compose(x -> insertAgreement(a3, t31, p31))
+        .compose(x -> insertAgreement(a3, t32, p32))
+        .compose(x -> insertPackageEntry(p11, "Package 11", t11))
+        .compose(x -> insertPackageEntry(p12, "Package 12", t21))
+        .compose(x -> insertPackageEntry(p21, "Package 21", t12))
+        .compose(x -> insertPackageEntry(p22, "Package 22", t22))
+        .compose(x -> insertPackageEntry(p31, "Package 31", t31))
+        .compose(x -> insertPackageEntry(p32, "Package 32", t32))
+        .compose(x -> insertTitleEntry(te11, t11, "Title 11", "1111-1111", "1111-2222"))
+        .compose(x -> insertTitleEntry(te12, t12, "Title 12", "1212-1111", "1212-2222"))
+        .compose(x -> insertTitleEntry(te21, t21, "Title 21", "2121-1111", null       ))
+        .compose(x -> insertTitleEntry(te22, t22, "Title 22", null,        "2222-2222"))
+        .compose(x -> insertTitleEntry(te31, t31, "Title 31", "3131313131"))
+        .compose(x -> insertTitleEntry(te32, t32, "Title 32", "3232323232"))
+        .compose(x -> insertTitleData(te11, "2020-03-01", "2020-04-01", 1999, false, 1, 2))
+        .compose(x -> insertTitleData(te11, "2020-04-01", "2020-04-15", 1999, false, 2, 3))
+        .compose(x -> insertTitleData(te11, "2020-04-15", "2020-05-01", 2000, false, 3, 3))
+        .compose(x -> insertTitleData(te11, "2020-05-01", "2020-06-01", 2000, false, 4, 12))
+        .compose(x -> insertTitleData(te12, "2020-03-01", "2020-04-01", 2010, false, 11, 12))
+        .compose(x -> insertTitleData(te12, "2020-04-01", "2020-05-01", 2010, false, 15, 16))
+        .compose(x -> insertTitleData(te12, "2020-05-01", "2020-06-01", 2010, false, 14, 22))
+        .compose(x -> insertTitleData(te21, "2020-03-01", "2020-04-01", 2010, false, 0, 0))
+        .compose(x -> insertTitleData(te21, "2020-05-01", "2020-06-01", 2010, false, 20, 40))
+        .compose(x -> insertTitleData(te21, "2020-06-01", "2020-07-01", 2010, true, 1, 2))
+        .compose(x -> insertTitleData(te31, "2020-05-01", "2020-06-01", 2010, false, 20, 40))
+        .compose(x -> insertTitleData(te32, "2020-06-01", "2020-07-01", 2010, true, 1, 2))
+        .mapEmpty();
+  }
+
+  private Future<JsonObject> getUseOverTime(boolean isJournal, boolean includeOA, String agreementId, String start, String end) {
+    return new EusageReportsApi().getUseOverTime(pool, isJournal, includeOA, agreementId, start, end);
   }
 
   @Test
   public void useOverTime(TestContext context) {
-    EusageReportsApi api = new EusageReportsApi();
-    api.postInit(vertx, tenant, new JsonObject().put("module_to", "1.1.1"))
-    .compose(x -> insertAgreement(a1, t11, p11))
-    .compose(x -> insertAgreement(a1, t12, p12))
-    .compose(x -> insertAgreement(a2, t21, p21))
-    .compose(x -> insertAgreement(a2, t22, p22))
-    .compose(x -> insertAgreement(a3, t31, p31))
-    .compose(x -> insertAgreement(a3, t32, p32))
-    .compose(x -> insertPackageEntry(p11, "Package 11", t11))
-    .compose(x -> insertPackageEntry(p12, "Package 12", t21))
-    .compose(x -> insertPackageEntry(p21, "Package 21", t12))
-    .compose(x -> insertPackageEntry(p22, "Package 22", t22))
-    .compose(x -> insertPackageEntry(p31, "Package 31", t31))
-    .compose(x -> insertPackageEntry(p32, "Package 32", t32))
-    .compose(x -> insertTitleEntry(te11, t11, "Title 11", "1111-1111", "1111-2222"))
-    .compose(x -> insertTitleEntry(te12, t12, "Title 12", "1212-1111", "1212-2222"))
-    .compose(x -> insertTitleEntry(te21, t21, "Title 21", "2121-1111", null       ))
-    .compose(x -> insertTitleEntry(te22, t22, "Title 22", null,        "2222-2222"))
-    .compose(x -> insertTitleEntry(te31, t31, "Title 31", "3131313131"))
-    .compose(x -> insertTitleEntry(te32, t32, "Title 32", "3232323232"))
-    .compose(x -> insertTitleData(te11, "2020-03-01", "2020-04-01", false, 1, 2))
-    .compose(x -> insertTitleData(te11, "2020-04-01", "2020-04-15", false, 2, 3))
-    .compose(x -> insertTitleData(te11, "2020-04-15", "2020-05-01", false, 3, 3))
-    .compose(x -> insertTitleData(te11, "2020-05-01", "2020-06-01", false, 4, 12))
-    .compose(x -> insertTitleData(te12, "2020-03-01", "2020-04-01", false, 11, 12))
-    .compose(x -> insertTitleData(te12, "2020-04-01", "2020-05-01", false, 15, 16))
-    .compose(x -> insertTitleData(te12, "2020-05-01", "2020-06-01", false, 14, 22))
-    .compose(x -> insertTitleData(te21, "2020-03-01", "2020-04-01", false, 0, 0))
-    .compose(x -> insertTitleData(te21, "2020-05-01", "2020-06-01", false, 20, 40))
-    .compose(x -> insertTitleData(te21, "2020-06-01", "2020-07-01", true, 1, 2))
-    .compose(x -> insertTitleData(te31, "2020-05-01", "2020-06-01", false, 20, 40))
-    .compose(x -> insertTitleData(te32, "2020-06-01", "2020-07-01", true, 1, 2))
-
-    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a1, "2020-04", "2020-05"))
+    getUseOverTime(true, true, a1, "2020-04", "2020-05")
     .onComplete(context.asyncAssertSuccess(json -> {
       assertThat(json.getString("agreementId"), is(a1));
       assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(), contains("2020-04", "2020-05"));
@@ -267,9 +284,12 @@ public class EusageReportsApiTest {
               .put("accessCountTotal", null)
               .put("accessCountsByPeriod", new JsonArray("[ null, null ]"))
               .encodePrettily()));
-    }))
-    // openAccess
-    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a2, "2020-06", "2020-06"))
+    })).onComplete(context.asyncAssertSuccess());
+  }
+
+  @Test
+  public void useOverTimeOpenAccess(TestContext context) {
+    getUseOverTime(true, true, a2, "2020-06", "2020-06")
     .onComplete(context.asyncAssertSuccess(json -> {
       assertThat(json.getLong("totalItemRequestsTotal"), is(2L));
       assertThat(json.getLong("uniqueItemRequestsTotal"), is(1L));
@@ -281,19 +301,25 @@ public class EusageReportsApiTest {
       assertThat(item2.getLong("accessCountTotal"), is(2L));
       assertThat(item3.getString("metricType"), is("Unique_Item_Requests"));
       assertThat(item3.getLong("accessCountTotal"), is(1L));
-    }))
-    // time without any data, totals should be null
-    .compose(x -> api.getUseOverTime(pool, /* journal = */ true, a2, "1999", "1999"))
+    }));
+  }
+
+  @Test
+  public void useOverTimeNoData(TestContext context) {
+    // time periods without any data, totals should be null
+    getUseOverTime(true, true, a2, "1999", "1999")
     .onComplete(context.asyncAssertSuccess(json -> {
       assertThat(json.getLong("totalItemRequestsTotal"), is(nullValue()));
       assertThat(json.getLong("uniqueItemRequestsTotal"), is(nullValue()));
       assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining((Long)null)));
       assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining((Long)null)));
-    }))
-    // book
-    .compose(x -> api.getUseOverTime(pool, /* journal = */ false , a3, "2020-05", "2020-06"))
+    }));
+  }
+
+  @Test
+  public void useOverTimeBook(TestContext context) {
+    getUseOverTime(/* journal = */ false, true, a3, "2020-05", "2020-06")
     .onComplete(context.asyncAssertSuccess(json -> {
-      System.out.println(json.encodePrettily());
       assertThat(json.getLong("totalItemRequestsTotal"), is(42L));
       assertThat(json.getLong("uniqueItemRequestsTotal"), is(21L));
       assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining(40L, 2L)));
@@ -308,6 +334,20 @@ public class EusageReportsApiTest {
               .put("accessCountTotal", 40L)
               .put("accessCountsByPeriod", new JsonArray("[ 40, null ]"))
               .encodePrettily()));
+    }));
+  }
+
+  private Future<JsonObject> getReqsByPubYear(boolean includeOA, String agreementId,
+      String start, String end, String periodOfUse) {
+
+    return new EusageReportsApi().getReqsByPubYear(pool, includeOA, agreementId, start, end, periodOfUse);
+  }
+
+  @Test
+  public void reqsByPubYear(TestContext context) {
+    getReqsByPubYear(true, a1, "2020-04", "2020-05", "1Y")
+    .onComplete(context.asyncAssertSuccess(json -> {
+      System.out.println(json.encodePrettily());
     }));
   }
 }
