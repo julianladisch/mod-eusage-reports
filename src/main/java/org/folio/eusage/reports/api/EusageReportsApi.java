@@ -1359,8 +1359,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
           Tuple tuple = Tuple.of(agreementId, periods.startDate, periods.endDate);
           pubYears.forEach(tuple::addString);
-System.out.println("sql = " + sql);
-System.out.println("tuple = " + tuple.deepToString());
           return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
             JsonArray items = new JsonArray();
             LongAdder [] totalItemRequestsByYear = LongAdder.arrayOfLength(pubYears.size());
