@@ -23,6 +23,7 @@ import io.vertx.ext.web.validation.ValidationHandler;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowStream;
 import io.vertx.sqlclient.SqlConnection;
+import io.vertx.sqlclient.SqlResult;
 import io.vertx.sqlclient.Tuple;
 import java.time.LocalDate;
 import java.time.Period;
@@ -33,6 +34,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.folio.okapi.common.GenericCompositeFuture;
@@ -1129,8 +1131,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     String agreementId = ctx.request().params().get("agreementId");
     String start = ctx.request().params().get("startDate");
     String end = ctx.request().params().get("endDate");
+    boolean includeOA = "true".equalsIgnoreCase(ctx.request().params().get("includeOA"));
 
-    return getUseOverTime(pool, isJournal, agreementId, start, end)
+    return getUseOverTime(pool, isJournal, includeOA, agreementId, start, end)
         .map(json -> {
           ctx.response().setStatusCode(200);
           ctx.response().putHeader("Content-Type", "application/json");
@@ -1139,45 +1142,70 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
-  Future<JsonObject> getUseOverTime(TenantPgPool pool,
-      boolean isJournal, String agreementId, String start, String end) {
+  private static class Periods {
+    private JsonArray accessCountPeriods = new JsonArray();
+    private final LocalDate startDate;
+    /** End date (exclusive): the first day after the last period. */
+    private final LocalDate endDate;
 
-    if (start.length() != end.length()) {
-      throw new IllegalArgumentException(
-          "startDate and endDate must have same length: " + start + " " + end);
-    }
-    if (start.compareTo(end) > 0) {
-      throw new IllegalArgumentException("startDate=" + start + " is after endDate=" + end);
-    }
-    boolean isYear = start.length() == 4;
-    start += isYear ? "-01-01" : "-01";
-    end   += isYear ? "-01-01" : "-01";
-    LocalDate startDate = LocalDate.parse(start);
-    LocalDate endDate = LocalDate.parse(end);
-    Period period = isYear ? Period.ofYears(1) : Period.ofMonths(1);
-    LocalDate date = startDate;
-    JsonArray accessCountPeriods = new JsonArray();
-    Tuple tuple = Tuple.of(UUID.fromString(agreementId), date);
-    do {
-      accessCountPeriods.add(date.toString().substring(0, isYear ? 4 : 7));
-      date = date.plus(period);
+    /**
+     * Adds the start LocalDate of each period to tuple and also the
+     * final end LocalDate (exclusive) to tuple.
+     */
+    public Periods(String start, String end, Tuple tuple) {
+      if (start.length() != end.length()) {
+        throw new IllegalArgumentException(
+            "startDate and endDate must have same length: " + start + " " + end);
+      }
+      if (start.compareTo(end) > 0) {
+        throw new IllegalArgumentException("startDate=" + start + " is after endDate=" + end);
+      }
+      boolean isYear = start.length() == 4;
+      start += isYear ? "-01-01" : "-01";
+      end   += isYear ? "-01-01" : "-01";
+      startDate = LocalDate.parse(start);
+      endDate = LocalDate.parse(end);
+      Period period = isYear ? Period.ofYears(1) : Period.ofMonths(1);
+      LocalDate date = startDate;
       tuple.addLocalDate(date);
-    } while (date.compareTo(endDate) <= 0);
+      do {
+        accessCountPeriods.add(date.toString().substring(0, isYear ? 4 : 7));
+        date = date.plus(period);
+        tuple.addLocalDate(date);
+      } while (date.compareTo(endDate) <= 0);
+    }
+
+    public int size() {
+      return accessCountPeriods.size();
+    }
+
+    public JsonArray getAccessCountPeriods() {
+      return accessCountPeriods;
+    }
+  }
+
+  Future<JsonObject> getUseOverTime(TenantPgPool pool,
+      boolean isJournal, boolean includeOA, String agreementId, String start, String end) {
+
+    Tuple tuple = Tuple.of(agreementId);
+    Periods periods = new Periods(start, end, tuple);
 
     StringBuilder sql = new StringBuilder();
-    useOverTime(sql, pool, isJournal, true, true, accessCountPeriods.size());
+    if (includeOA) {
+      useOverTime(sql, pool, isJournal, true, true, periods.size());
+      sql.append(" UNION ");
+      useOverTime(sql, pool, isJournal, true, false, periods.size());
+      sql.append(" UNION ");
+    }
+    useOverTime(sql, pool, isJournal, false, true, periods.size());
     sql.append(" UNION ");
-    useOverTime(sql, pool, isJournal, true, false, accessCountPeriods.size());
-    sql.append(" UNION ");
-    useOverTime(sql, pool, isJournal, false, true, accessCountPeriods.size());
-    sql.append(" UNION ");
-    useOverTime(sql, pool, isJournal, false, false, accessCountPeriods.size());
+    useOverTime(sql, pool, isJournal, false, false, periods.size());
     sql.append(" ORDER BY title, kbId, accessType, metricType");
 
     return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
       JsonArray items = new JsonArray();
-      LongAdder [] totalItemRequestsByPeriod = LongAdder.arrayOfLength(accessCountPeriods.size());
-      LongAdder [] uniqueItemRequestsByPeriod = LongAdder.arrayOfLength(accessCountPeriods.size());
+      LongAdder [] totalItemRequestsByPeriod = LongAdder.arrayOfLength(periods.size());
+      LongAdder [] uniqueItemRequestsByPeriod = LongAdder.arrayOfLength(periods.size());
       rowSet.forEach(row -> {
         JsonArray accessCountsByPeriod = new JsonArray();
         LongAdder accessCountTotal = new LongAdder();
@@ -1185,7 +1213,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         final int journalColumnsToSkip = 6;
         final int bookColumnsToSkip = 5;
         int pos0 = isJournal ? journalColumnsToSkip : bookColumnsToSkip;
-        for (int i = 0; i < accessCountPeriods.size(); i++) {
+        for (int i = 0; i < periods.size(); i++) {
           Long l = row.getLong(pos0 + i);
           accessCountsByPeriod.add(l);
           accessCountTotal.add(l);
@@ -1215,7 +1243,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       });
       return new JsonObject()
           .put("agreementId", agreementId)
-          .put("accessCountPeriods", accessCountPeriods)
+          .put("accessCountPeriods", periods.getAccessCountPeriods())
           .put("totalItemRequestsTotal", LongAdder.sum(totalItemRequestsByPeriod))
           .put("totalItemRequestsByPeriod", LongAdder.longArray(totalItemRequestsByPeriod))
           .put("uniqueItemRequestsTotal", LongAdder.sum(uniqueItemRequestsByPeriod))
@@ -1258,13 +1286,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                         : " ISBN, ")
         .append(openAccess ? "'OA_Gold' AS accessType, "
                            : "'Controlled' AS accessType, ")
-        .append(unique ? "'Unique_Item_Requests' AS metricType, "
-                       : "'Total_Item_Requests' AS metricType, ");
+        .append(unique ? "'Unique_Item_Requests' AS metricType "
+                       : "'Total_Item_Requests' AS metricType ");
     for (int i = 0; i < periods; i++) {
-      if (i > 0) {
-        sql.append(", ");
-      }
-      sql.append('n').append(i);
+      sql.append(", n").append(i);
     }
     sql
     .append(" FROM ").append(titleEntriesTable(pool))
@@ -1295,6 +1320,175 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     return Future.succeededFuture();
   }
 
+  Future<Void> getReqsByPubYear(Vertx vertx, RoutingContext ctx) {
+    TenantPgPool pool = TenantPgPool.pool(vertx, TenantUtil.tenant(ctx));
+    boolean includeOA = "true".equalsIgnoreCase(ctx.request().params().get("includeOA"));
+    String agreementId = ctx.request().params().get("agreementId");
+    String start = ctx.request().params().get("startDate");
+    String end = ctx.request().params().get("endDate");
+    String periodOfUse = ctx.request().params().get("periodOfUse");
+    return getReqsByPubYear(pool, includeOA, agreementId, start, end, periodOfUse)
+        .map(json -> {
+          ctx.response().setStatusCode(200);
+          ctx.response().putHeader("Content-Type", "application/json");
+          ctx.response().end(json.encodePrettily());
+          return null;
+        });
+  }
+
+  Future<JsonObject> getReqsByPubYear(TenantPgPool pool,
+      boolean includeOA, String agreementId, String start, String end, String periodOfUse) {
+
+    Tuple periodsTuple = Tuple.of(agreementId);
+    Periods periods = new Periods(start, end, periodsTuple);
+
+    return getPubYears(pool, agreementId, periods)
+        .compose(pubYears -> {
+          StringBuilder sql = new StringBuilder();
+
+          if (includeOA) {
+            reqsByPubYear(sql, pool, true, true, pubYears.size());
+            sql.append(" UNION ");
+            reqsByPubYear(sql, pool, true, false, pubYears.size());
+            sql.append(" UNION ");
+          }
+          reqsByPubYear(sql, pool, false, true, pubYears.size());
+          sql.append(" UNION ");
+          reqsByPubYear(sql, pool, false, false, pubYears.size());
+          sql.append(" ORDER BY title, kbId, accessType, metricType");
+
+          Tuple tuple = Tuple.of(agreementId);
+          if (! pubYears.isEmpty()) {
+            tuple.addLocalDate(periods.startDate);
+            tuple.addLocalDate(periods.endDate);
+            pubYears.forEach(tuple::addString);
+          }
+          return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
+            JsonArray items = new JsonArray();
+            LongAdder [] totalItemRequestsByYear = LongAdder.arrayOfLength(pubYears.size());
+            LongAdder [] uniqueItemRequestsByYear = LongAdder.arrayOfLength(pubYears.size());
+            rowSet.forEach(row -> {
+              JsonArray accessCountsByYear = new JsonArray();
+              LongAdder accessCountTotal = new LongAdder();
+              boolean unique = "Unique_Item_Requests".equals(row.getString("metrictype"));
+              final int columnsToSkip = 6;
+              for (int i = 0; i < pubYears.size(); i++) {
+                Long l = row.getLong(columnsToSkip + i);
+                accessCountsByYear.add(l);
+                accessCountTotal.add(l);
+                if (unique) {
+                  uniqueItemRequestsByYear[i].add(l);
+                } else {
+                  totalItemRequestsByYear[i].add(l);
+                }
+              }
+              JsonObject json = new JsonObject()
+                  .put("kbId", row.getUUID("kbid"))
+                  .put("title", row.getString("title"))
+                  .put("printISSN", row.getString("printissn"))
+                  .put("onlineISSN", row.getString("onlineissn"))
+                  .put("accessType", row.getString("accesstype"))
+                  .put("metricType", row.getString("metrictype"))
+                  .put("accessCountTotal", accessCountTotal.get())
+                  .put("accessCountsByPeriod", accessCountsByYear);
+              items.add(json);
+            });
+            return new JsonObject()
+                .put("agreementId", agreementId)
+                .put("accessCountPeriods", pubYears)
+                .put("totalItemRequestsTotal", LongAdder.sum(totalItemRequestsByYear))
+                .put("totalItemRequestsByPeriod", LongAdder.longArray(totalItemRequestsByYear))
+                .put("uniqueItemRequestsTotal", LongAdder.sum(uniqueItemRequestsByYear))
+                .put("uniqueItemRequestsByPeriod", LongAdder.longArray(uniqueItemRequestsByYear))
+                .put("items", items);
+          });
+        });
+  }
+
+  /**
+   * distinct publication years, sorted.
+   */
+  Future<List<String>> getPubYears(TenantPgPool pool, String agreementId, Periods periods) {
+    String sql = "SELECT distinct(extract(year FROM publicationDate))"
+               + " FROM " + agreementEntriesTable(pool)
+               + " JOIN " + titleEntriesTable(pool) + " USING (kbTitleId)"
+               + " JOIN " + titleDataTable(pool) + " ON titleEntryId = title_entries.id"
+               + " WHERE agreementId = $1"
+               + "   AND publicationDate IS NOT NULL"
+               + "   AND (printISSN IS NOT NULL OR onlineISSN IS NOT NULL)"
+               + "   AND daterange($2, $3) @> lower(usageDateRange)"
+               + " ORDER BY 1";
+    return pool.preparedQuery(sql)
+        .collecting(Collectors.mapping(row -> row.getInteger(0).toString(), Collectors.toList()))
+        .execute(Tuple.of(agreementId, periods.startDate, periods.endDate))
+        .map(SqlResult::value);
+  }
+
+  /**
+   * Append to <code>sql</code>. The appended SELECT statement is like this:
+   *
+   * <pre>
+   * SELECT title_entries.kbTitleId AS kbId,
+   *        kbTitleName, printISSN, onlineISSN,
+   *        'OA_Gold' AS accessType, 'Unique_Item_Requests' AS metricType,
+   *        n0, n1
+   * FROM title_entries
+   * JOIN agreement_entries ON agreement_entries.kbTitleId = title_entries.id
+   * LEFT JOIN (
+   *   SELECT titleEntryId, sum(uniqueAcessCount) AS n0
+   *   FROM title_data
+   *   WHERE daterange($2, $3) @> lower(usageDateRange)
+   *     AND openAccess
+   *     AND extract(year FROM publicationDate) = $4
+   *   GROUP BY titleEntryId
+   * ) t0 ON t0.titleEntryId = title_entries.id
+   * LEFT JOIN (
+   *   SELECT titleEntryId, sum(uniqueAccessCount) AS n1
+   *   FROM title_data
+   *   WHERE daterange($2, $3) @> lower(usageDateRange)
+   *     AND openAccess
+   *     AND extract(year FROM publicationDate) = $5
+   *   GROUP BY titleEntryId
+   * ) t1 ON t1.titleEntryId = title_entries.id
+   * WHERE agreementId = $1
+   *   AND (printISSN IS NOT NULL OR onlineISSN IS NOT NULL)
+   * </pre>
+   */
+  private static void reqsByPubYear(StringBuilder sql, TenantPgPool pool,
+      boolean openAccess, boolean unique, int years) {
+
+    sql
+        .append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title, ")
+        .append("printISSN, onlineISSN, ")
+        .append(openAccess ? "'OA_Gold' AS accessType, "
+                           : "'Controlled' AS accessType, ")
+        .append(unique ? "'Unique_Item_Requests' AS metricType "
+                       : "'Total_Item_Requests' AS metricType ");
+    for (int i = 0; i < years; i++) {
+      sql.append(", n").append(i);
+    }
+    sql
+    .append(" FROM ").append(titleEntriesTable(pool))
+    .append(" JOIN ").append(agreementEntriesTable(pool)).append(" USING (kbTitleId)");
+    for (int i = 0; i < years; i++) {
+      sql
+      .append(" LEFT JOIN (")
+      .append(" SELECT titleEntryId, sum(")
+        .append(unique ? "uniqueAccessCount" : "totalAccessCount").append(") AS n").append(i)
+      .append(" FROM ").append(titleDataTable(pool))
+      .append(" WHERE daterange($2, $3) @> lower(usageDateRange)")
+        .append(openAccess ? " AND openAccess" : " AND NOT openAccess")
+        .append(" AND $").append(4 + i).append("::text IS NOT NULL")
+      .append(" GROUP BY titleEntryId")
+      .append(" ) t").append(i)
+      .append(" ON t").append(i).append(".titleEntryId = ")
+        .append(titleEntriesTable(pool)).append(".id");
+    }
+    sql
+        .append(" WHERE agreementId = $1")
+        .append("   AND (printISSN IS NOT NULL OR onlineISSN IS NOT NULL)");
+  }
+
   private void add(RouterBuilder routerBuilder,
       String operationId, Function<RoutingContext, Future<Void>> function) {
 
@@ -1322,6 +1516,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           add(routerBuilder, "getReportData", ctx -> getReportData(vertx, ctx));
           add(routerBuilder, "postFromAgreement", ctx -> postFromAgreement(vertx, ctx));
           add(routerBuilder, "getUseOverTime", ctx -> getUseOverTime(vertx, ctx));
+          add(routerBuilder, "getReqsByPubYear", ctx -> getReqsByPubYear(vertx, ctx));
           return routerBuilder.createRouter();
         });
   }
