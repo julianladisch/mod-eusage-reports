@@ -1165,6 +1165,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       end   += isYear ? "-01-01" : "-01";
       startDate = LocalDate.parse(start);
       endDate = LocalDate.parse(end);
+
+      if (Period.between(startDate, endDate).getYears() > 10) {
+        throw new IllegalArgumentException(
+            "Must no exceed 10 years: startDate=" + start + ", endDate= " + end);
+      }
+
       Period period = isYear ? Period.ofYears(1) : Period.ofMonths(1);
       LocalDate date = startDate;
       tuple.addLocalDate(date);
@@ -1299,7 +1305,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       .append(" SELECT titleEntryId, sum(")
         .append(unique ? "uniqueAccessCount" : "totalAccessCount").append(") AS n").append(i)
       .append(" FROM ").append(titleDataTable(pool))
-      .append(" WHERE daterange($").append(i + 2).append(", $").append(i + 3)
+      .append(" WHERE daterange($").append(2 + i).append(", $").append(2 + i + 1)
         .append(") @> lower(usageDateRange)")
         .append(openAccess ? " AND openAccess" : " AND NOT openAccess")
       .append(" GROUP BY titleEntryId")
@@ -1326,8 +1332,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     String agreementId = ctx.request().params().get("agreementId");
     String start = ctx.request().params().get("startDate");
     String end = ctx.request().params().get("endDate");
-    String periodOfUse = ctx.request().params().get("periodOfUse");
-    return getReqsByPubYear(pool, includeOA, agreementId, start, end, periodOfUse)
+    String pubPeriodInMonths = ctx.request().params().get("periodOfUse");
+    return getReqsByPubYear(pool, includeOA, agreementId, start, end, pubPeriodInMonths)
         .map(json -> {
           ctx.response().setStatusCode(200);
           ctx.response().putHeader("Content-Type", "application/json");
@@ -1336,50 +1342,56 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
-  Future<JsonObject> getReqsByPubYear(TenantPgPool pool,
-      boolean includeOA, String agreementId, String start, String end, String periodOfUse) {
+  Future<JsonObject> getReqsByPubYear(TenantPgPool pool, boolean includeOA, String agreementId,
+      String start, String end, String pubPeriodInMonthsStr) {
 
     Tuple periodsTuple = Tuple.of(agreementId);
-    Periods periods = new Periods(start, end, periodsTuple);
+    Periods usePeriods = new Periods(start, end, periodsTuple);
+    int pubPeriodInMonths = getPubPeriodInMonths(pubPeriodInMonthsStr);
 
-    return getPubYears(pool, agreementId, periods)
-        .compose(pubYears -> {
+    return getPubPeriods(pool, agreementId, usePeriods, pubPeriodInMonths)
+        .compose(pubPeriods -> {
           StringBuilder sql = new StringBuilder();
 
           if (includeOA) {
-            reqsByPubYear(sql, pool, true, true, pubYears.size());
+            reqsByPubYear(sql, pool, true, true, pubPeriods.size());
             sql.append(" UNION ");
-            reqsByPubYear(sql, pool, true, false, pubYears.size());
+            reqsByPubYear(sql, pool, true, false, pubPeriods.size());
             sql.append(" UNION ");
           }
-          reqsByPubYear(sql, pool, false, true, pubYears.size());
+          reqsByPubYear(sql, pool, false, true, pubPeriods.size());
           sql.append(" UNION ");
-          reqsByPubYear(sql, pool, false, false, pubYears.size());
+          reqsByPubYear(sql, pool, false, false, pubPeriods.size());
           sql.append(" ORDER BY title, kbId, accessType, metricType");
 
           Tuple tuple = Tuple.of(agreementId);
-          if (! pubYears.isEmpty()) {
-            tuple.addLocalDate(periods.startDate);
-            tuple.addLocalDate(periods.endDate);
-            pubYears.forEach(tuple::addString);
+          if (! pubPeriods.isEmpty()) {
+            tuple.addLocalDate(usePeriods.startDate);
+            tuple.addLocalDate(usePeriods.endDate);
+            pubPeriods.forEach(pubPeriodStart -> {
+              tuple.addLocalDate(pubPeriodStart);
+              tuple.addLocalDate(pubPeriodStart.plusMonths(pubPeriodInMonths));
+            });
           }
+          System.out.println(sql.toString());
+          System.out.println(tuple.deepToString());
           return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
             JsonArray items = new JsonArray();
-            LongAdder [] totalItemRequestsByYear = LongAdder.arrayOfLength(pubYears.size());
-            LongAdder [] uniqueItemRequestsByYear = LongAdder.arrayOfLength(pubYears.size());
+            LongAdder [] totalItemRequestsByPub = LongAdder.arrayOfLength(pubPeriods.size());
+            LongAdder [] uniqueItemRequestsByPub = LongAdder.arrayOfLength(pubPeriods.size());
             rowSet.forEach(row -> {
-              JsonArray accessCountsByYear = new JsonArray();
+              JsonArray accessCountsByPub = new JsonArray();
               LongAdder accessCountTotal = new LongAdder();
               boolean unique = "Unique_Item_Requests".equals(row.getString("metrictype"));
               final int columnsToSkip = 6;
-              for (int i = 0; i < pubYears.size(); i++) {
+              for (int i = 0; i < pubPeriods.size(); i++) {
                 Long l = row.getLong(columnsToSkip + i);
-                accessCountsByYear.add(l);
+                accessCountsByPub.add(l);
                 accessCountTotal.add(l);
                 if (unique) {
-                  uniqueItemRequestsByYear[i].add(l);
+                  uniqueItemRequestsByPub[i].add(l);
                 } else {
-                  totalItemRequestsByYear[i].add(l);
+                  totalItemRequestsByPub[i].add(l);
                 }
               }
               JsonObject json = new JsonObject()
@@ -1390,26 +1402,51 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                   .put("accessType", row.getString("accesstype"))
                   .put("metricType", row.getString("metrictype"))
                   .put("accessCountTotal", accessCountTotal.get())
-                  .put("accessCountsByPeriod", accessCountsByYear);
+                  .put("accessCountsByPeriod", accessCountsByPub);
               items.add(json);
             });
+
+            JsonArray pubPeriodsStr = new JsonArray();
+            for (int i = 0; i < pubPeriods.size(); i++) {
+              LocalDate date = pubPeriods.get(i);
+              if (pubPeriodInMonths % 12 == 0) {
+                pubPeriodsStr.add("" + date.getYear());
+              } else {
+                pubPeriodsStr.add("" + date.getYear() + "-" + date.getMonthValue());
+              }
+            }
             return new JsonObject()
                 .put("agreementId", agreementId)
-                .put("accessCountPeriods", pubYears)
-                .put("totalItemRequestsTotal", LongAdder.sum(totalItemRequestsByYear))
-                .put("totalItemRequestsByPeriod", LongAdder.longArray(totalItemRequestsByYear))
-                .put("uniqueItemRequestsTotal", LongAdder.sum(uniqueItemRequestsByYear))
-                .put("uniqueItemRequestsByPeriod", LongAdder.longArray(uniqueItemRequestsByYear))
+                .put("accessCountPeriods", pubPeriodsStr)
+                .put("totalItemRequestsTotal", LongAdder.sum(totalItemRequestsByPub))
+                .put("totalItemRequestsByPeriod", LongAdder.longArray(totalItemRequestsByPub))
+                .put("uniqueItemRequestsTotal", LongAdder.sum(uniqueItemRequestsByPub))
+                .put("uniqueItemRequestsByPeriod", LongAdder.longArray(uniqueItemRequestsByPub))
                 .put("items", items);
           });
         });
   }
 
   /**
-   * distinct publication years, sorted.
+   * Convert month string or year string to month number: 6M -> 6, 2Y -> 24.
    */
-  Future<List<String>> getPubYears(TenantPgPool pool, String agreementId, Periods periods) {
-    String sql = "SELECT distinct(extract(year FROM publicationDate))"
+  private int getPubPeriodInMonths(String pubPeriodInMonthsStr) {
+    int pubPeriodInMonths = Integer.parseUnsignedInt(
+        pubPeriodInMonthsStr, 0, pubPeriodInMonthsStr.length() - 1, 10);
+    if (pubPeriodInMonthsStr.endsWith("Y")) {
+      pubPeriodInMonths *= 12;
+    }
+    return pubPeriodInMonths;
+  }
+
+  /**
+   * Distinct publication periods (like quarters or years), sorted.
+   * @return first day of publication period
+   */
+  Future<List<LocalDate>> getPubPeriods(TenantPgPool pool, String agreementId,
+      Periods usePeriods, int pubPeriodLengthInMonths) {
+
+    String sql = "SELECT distinct(floor_months(publicationDate, $4))"
                + " FROM " + agreementEntriesTable(pool)
                + " JOIN " + titleEntriesTable(pool) + " USING (kbTitleId)"
                + " JOIN " + titleDataTable(pool) + " ON titleEntryId = title_entries.id"
@@ -1419,13 +1456,14 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                + "   AND daterange($2, $3) @> lower(usageDateRange)"
                + " ORDER BY 1";
     return pool.preparedQuery(sql)
-        .collecting(Collectors.mapping(row -> row.getInteger(0).toString(), Collectors.toList()))
-        .execute(Tuple.of(agreementId, periods.startDate, periods.endDate))
+        .collecting(Collectors.mapping(row -> row.getLocalDate(0), Collectors.toList()))
+        .execute(Tuple.of(agreementId, usePeriods.startDate, usePeriods.endDate,
+            pubPeriodLengthInMonths))
         .map(SqlResult::value);
   }
 
   /**
-   * Append to <code>sql</code>. The appended SELECT statement is like this:
+   * Append to <code>sql</code>. The appended statement is like this:
    *
    * <pre>
    * SELECT title_entries.kbTitleId AS kbId,
@@ -1438,16 +1476,16 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
    *   SELECT titleEntryId, sum(uniqueAcessCount) AS n0
    *   FROM title_data
    *   WHERE daterange($2, $3) @> lower(usageDateRange)
+   *     AND daterange($4, $5) @> publicationDate
    *     AND openAccess
-   *     AND extract(year FROM publicationDate) = $4
    *   GROUP BY titleEntryId
    * ) t0 ON t0.titleEntryId = title_entries.id
    * LEFT JOIN (
    *   SELECT titleEntryId, sum(uniqueAccessCount) AS n1
    *   FROM title_data
    *   WHERE daterange($2, $3) @> lower(usageDateRange)
+   *     AND daterange($6, $7) @> publicationDate
    *     AND openAccess
-   *     AND extract(year FROM publicationDate) = $5
    *   GROUP BY titleEntryId
    * ) t1 ON t1.titleEntryId = title_entries.id
    * WHERE agreementId = $1
@@ -1455,7 +1493,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
    * </pre>
    */
   private static void reqsByPubYear(StringBuilder sql, TenantPgPool pool,
-      boolean openAccess, boolean unique, int years) {
+      boolean openAccess, boolean unique, int publicationPeriods) {
 
     sql
         .append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title, ")
@@ -1464,21 +1502,22 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                            : "'Controlled' AS accessType, ")
         .append(unique ? "'Unique_Item_Requests' AS metricType "
                        : "'Total_Item_Requests' AS metricType ");
-    for (int i = 0; i < years; i++) {
+    for (int i = 0; i < publicationPeriods; i++) {
       sql.append(", n").append(i);
     }
     sql
     .append(" FROM ").append(titleEntriesTable(pool))
     .append(" JOIN ").append(agreementEntriesTable(pool)).append(" USING (kbTitleId)");
-    for (int i = 0; i < years; i++) {
+    for (int i = 0; i < publicationPeriods; i++) {
       sql
       .append(" LEFT JOIN (")
       .append(" SELECT titleEntryId, sum(")
         .append(unique ? "uniqueAccessCount" : "totalAccessCount").append(") AS n").append(i)
       .append(" FROM ").append(titleDataTable(pool))
       .append(" WHERE daterange($2, $3) @> lower(usageDateRange)")
+        .append(" AND daterange($").append(4 + 2 * i).append(", $").append(4 + 2 * i + 1)
+          .append(") @> publicationDate")
         .append(openAccess ? " AND openAccess" : " AND NOT openAccess")
-        .append(" AND $").append(4 + i).append("::text IS NOT NULL")
       .append(" GROUP BY titleEntryId")
       .append(" ) t").append(i)
       .append(" ON t").append(i).append(".titleEntryId = ")
@@ -1527,8 +1566,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       return Future.succeededFuture(); // doing nothing for disable
     }
     TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-    Future<Void> future = pool
-        .query("CREATE TABLE IF NOT EXISTS " + titleEntriesTable(pool) + " ( "
+    return pool.execute(List.of(
+        "CREATE TABLE IF NOT EXISTS " + titleEntriesTable(pool) + " ( "
             + "id UUID PRIMARY KEY, "
             + "counterReportTitle text UNIQUE, "
             + "kbTitleName text, "
@@ -1538,29 +1577,19 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + "onlineISSN text, "
             + "ISBN text, "
             + "DOI text"
-            + ")")
-        .execute().mapEmpty();
-    future = future.compose(x -> pool
-        .query("CREATE INDEX IF NOT EXISTS title_entries_kbTitleId ON "
-            + titleEntriesTable(pool) + " USING btree(kbTitleId)")
-        .execute().mapEmpty());
-    future = future.compose(x -> pool
-        .query("CREATE TABLE IF NOT EXISTS " + packageEntriesTable(pool) + " ( "
+            + ")",
+        "CREATE INDEX IF NOT EXISTS title_entries_kbTitleId ON "
+            + titleEntriesTable(pool) + " USING btree(kbTitleId)",
+        "CREATE TABLE IF NOT EXISTS " + packageEntriesTable(pool) + " ( "
             + "kbPackageId UUID, "
             + "kbPackageName text, "
             + "kbTitleId UUID "
-            + ")")
-        .execute().mapEmpty());
-    future = future.compose(x -> pool
-        .query("CREATE INDEX IF NOT EXISTS package_entries_kbTitleId ON "
-            + packageEntriesTable(pool) + " USING btree(kbTitleId)")
-        .execute().mapEmpty());
-    future = future.compose(x -> pool
-        .query("CREATE INDEX IF NOT EXISTS package_entries_kbPackageId ON "
-            + packageEntriesTable(pool) + " USING btree(kbPackageId)")
-        .execute().mapEmpty());
-    future = future.compose(x -> pool
-        .query("CREATE TABLE IF NOT EXISTS " + titleDataTable(pool) + " ( "
+            + ")",
+        "CREATE INDEX IF NOT EXISTS package_entries_kbTitleId ON "
+            + packageEntriesTable(pool) + " USING btree(kbTitleId)",
+        "CREATE INDEX IF NOT EXISTS package_entries_kbPackageId ON "
+            + packageEntriesTable(pool) + " USING btree(kbPackageId)",
+        "CREATE TABLE IF NOT EXISTS " + titleDataTable(pool) + " ( "
             + "id UUID PRIMARY KEY, "
             + "titleEntryId UUID, "
             + "counterReportId UUID, "
@@ -1571,22 +1600,14 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + "uniqueAccessCount integer, "
             + "totalAccessCount integer, "
             + "openAccess boolean NOT NULL"
-            + ")")
-        .execute().mapEmpty());
-    future = future.compose(x -> pool
-        .query("CREATE INDEX IF NOT EXISTS title_data_entries_titleEntryId ON "
-            + titleDataTable(pool) + " USING btree(titleEntryId)")
-        .execute().mapEmpty());
-    future = future.compose(x -> pool
-        .query("CREATE INDEX IF NOT EXISTS title_data_entries_counterReportId ON "
-            + titleDataTable(pool) + " USING btree(counterReportId)")
-        .execute().mapEmpty());
-    future = future.compose(x -> pool
-        .query("CREATE INDEX IF NOT EXISTS title_data_entries_providerId ON "
-            + titleDataTable(pool) + " USING btree(providerId)")
-        .execute().mapEmpty());
-    future = future.compose(x -> pool
-        .query("CREATE TABLE IF NOT EXISTS " + agreementEntriesTable(pool) + " ( "
+            + ")",
+        "CREATE INDEX IF NOT EXISTS title_data_entries_titleEntryId ON "
+            + titleDataTable(pool) + " USING btree(titleEntryId)",
+        "CREATE INDEX IF NOT EXISTS title_data_entries_counterReportId ON "
+            + titleDataTable(pool) + " USING btree(counterReportId)",
+        "CREATE INDEX IF NOT EXISTS title_data_entries_providerId ON "
+            + titleDataTable(pool) + " USING btree(providerId)",
+        "CREATE TABLE IF NOT EXISTS " + agreementEntriesTable(pool) + " ( "
             + "id UUID PRIMARY KEY, "
             + "kbTitleId UUID, "
             + "kbPackageId UUID, "
@@ -1601,12 +1622,19 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + "coverageDateRanges daterange,"
             + "orderType text,"
             + "invoiceNumber text"
-            + ")")
-        .execute().mapEmpty());
-    future = future.compose(x -> pool
-        .query("CREATE INDEX IF NOT EXISTS agreement_entries_agreementId ON "
-            + agreementEntriesTable(pool) + " USING btree(agreementId)")
-        .execute().mapEmpty());
-    return future;
+            + ")",
+        "CREATE INDEX IF NOT EXISTS agreement_entries_agreementId ON "
+            + agreementEntriesTable(pool) + " USING btree(agreementId)",
+        /* floor_months(date, n) returns the start of the period date belongs to,
+         * periods are n months long. Examples:
+         * Begin of quarter (3 months): floor_months('2019-05-17', 3) = '2019-04-01'.
+         * Begin of decade (10 years): floor_months('2019-05-17', 120) = '2010-01-01'.
+         */
+        "CREATE OR REPLACE FUNCTION floor_months(date, integer) RETURNS date AS $$\n"
+        + "  SELECT make_date(m / 12, m % 12 + 1, 1)\n"
+        + "  FROM (SELECT ((12 * extract(year FROM $1)::integer\n"
+        + "                 + extract(month FROM $1)::integer - 1) / $2) * $2) AS x(m)\n"
+        + "$$ LANGUAGE SQL IMMUTABLE STRICT"
+      ));
   }
 }

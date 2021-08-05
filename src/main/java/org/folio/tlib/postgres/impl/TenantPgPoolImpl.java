@@ -185,13 +185,12 @@ public class TenantPgPoolImpl implements TenantPgPool {
    */
   @Override
   public Future<Void> execute(List<String> queries) {
-    Future<Void> future = Future.succeededFuture();
+    Future<RowSet<Row>> future = Future.succeededFuture();
     for (String cmd : queries) {
       future = future.compose(res -> query(cmd).execute()
-          .onFailure(x -> log.warn("{} FAIL: {}", cmd, x.getMessage()))
-          .mapEmpty());
+          .onFailure(x -> log.warn("{} FAIL: {}", cmd, x.getMessage())));
     }
-    return future;
+    return future.mapEmpty();
   }
 
 }
