@@ -1446,15 +1446,16 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   Future<List<LocalDate>> getPubPeriods(TenantPgPool pool, String agreementId,
       Periods usePeriods, int pubPeriodLengthInMonths) {
 
-    String sql = "SELECT distinct(floor_months(publicationDate, $4))"
-               + " FROM " + agreementEntriesTable(pool)
-               + " JOIN " + titleEntriesTable(pool) + " USING (kbTitleId)"
-               + " JOIN " + titleDataTable(pool) + " ON titleEntryId = title_entries.id"
-               + " WHERE agreementId = $1"
-               + "   AND publicationDate IS NOT NULL"
-               + "   AND (printISSN IS NOT NULL OR onlineISSN IS NOT NULL)"
-               + "   AND daterange($2, $3) @> lower(usageDateRange)"
-               + " ORDER BY 1";
+    String sql =
+        "SELECT distinct(" + pool.getSchema() + ".floor_months(publicationDate, $4::integer))"
+        + " FROM " + agreementEntriesTable(pool)
+        + " JOIN " + titleEntriesTable(pool) + " USING (kbTitleId)"
+        + " JOIN " + titleDataTable(pool) + " ON titleEntryId = title_entries.id"
+        + " WHERE agreementId = $1"
+        + "   AND publicationDate IS NOT NULL"
+        + "   AND (printISSN IS NOT NULL OR onlineISSN IS NOT NULL)"
+        + "   AND daterange($2, $3) @> lower(usageDateRange)"
+        + " ORDER BY 1";
     return pool.preparedQuery(sql)
         .collecting(Collectors.mapping(row -> row.getLocalDate(0), Collectors.toList()))
         .execute(Tuple.of(agreementId, usePeriods.startDate, usePeriods.endDate,
@@ -1567,6 +1568,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     }
     TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
     return pool.execute(List.of(
+        "SET search_path TO " + pool.getSchema(),
         "CREATE TABLE IF NOT EXISTS " + titleEntriesTable(pool) + " ( "
             + "id UUID PRIMARY KEY, "
             + "counterReportTitle text UNIQUE, "
