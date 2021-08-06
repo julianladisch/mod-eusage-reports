@@ -371,12 +371,12 @@ public class EusageReportsApiTest {
 
   @Test
   public void reqsByPubYear(TestContext context) {
-    getReqsByPubPeriod(true, a1, "2020-04", "2020-05", "1Y")
+    getReqsByPubPeriod(true, a1, "2020-04", "2020-05", "6M")
     .onComplete(context.asyncAssertSuccess(json -> {
       System.out.println(json.encodePrettily());
       assertThat(json.getInteger("totalItemRequestsTotal"), is(22));
       assertThat(json.getInteger("uniqueItemRequestsTotal"), is(20));
-      assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(), contains("1999", "2000", "2010"));
+      assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(), contains("1999-01", "2000-01", "2010-01"));
       assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining(3L, 3L, 16L)));
       assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining(2L, 3L, 15L)));
       assertThat(json.getJsonArray("items").size(), is(8));
