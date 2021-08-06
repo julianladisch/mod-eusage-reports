@@ -337,7 +337,33 @@ public class EusageReportsApiTest {
     }));
   }
 
-  private Future<JsonObject> getReqsByPubYear(boolean includeOA, String agreementId,
+  private void floorMonths(TestContext context, String date, int months, String expected) {
+    String sql = "SELECT " + pool.getSchema() + ".floor_months('" + date + "'::date, " + months + ")";
+    pool.query(sql).execute().onComplete(context.asyncAssertSuccess(res -> {
+      assertThat(sql, res.iterator().next().getLocalDate(0).toString(), is(expected));
+    }));
+  }
+
+  /*
+   * Cannot combine https://github.com/Pragmatists/JUnitParams and
+   * https://github.com/vert-x3/vertx-unit in a test class.
+   *
+   * TODO: Switch to https://github.com/vert-x3/vertx-junit5 that allows
+   * to use JUnit 5 built-in parameterized tests.
+   */
+  @Test
+  public void floorMonths(TestContext context) {
+    floorMonths(context, "2019-05-17",   3, "2019-04-01");
+    floorMonths(context, "2019-05-17",  12, "2019-01-01");
+    floorMonths(context, "2019-12-31",  24, "2018-01-01");
+    floorMonths(context, "1919-05-17", 120, "1910-01-01");
+    floorMonths(context, "2018-01-01",   5, "2017-12-01");
+    floorMonths(context, "2018-09-17",   5, "2018-05-01");
+    floorMonths(context, "2018-10-17",   5, "2018-10-01");
+    floorMonths(context, "2019-05-17",   5, "2019-03-01");
+  }
+
+  private Future<JsonObject> getReqsByPubPeriod(boolean includeOA, String agreementId,
       String start, String end, String periodOfUse) {
 
     return new EusageReportsApi().getReqsByPubYear(pool, includeOA, agreementId, start, end, periodOfUse);
@@ -345,15 +371,32 @@ public class EusageReportsApiTest {
 
   @Test
   public void reqsByPubYear(TestContext context) {
-    getReqsByPubYear(true, a1, "2020-04", "2020-05", "1Y")
+    getReqsByPubPeriod(true, a1, "2020-04", "2020-05", "1Y")
     .onComplete(context.asyncAssertSuccess(json -> {
       System.out.println(json.encodePrettily());
+      assertThat(json.getInteger("totalItemRequestsTotal"), is(22));
+      assertThat(json.getInteger("uniqueItemRequestsTotal"), is(20));
+      assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(), contains("1999", "2000", "2010"));
+      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining(3L, 3L, 16L)));
+      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining(2L, 3L, 15L)));
+      assertThat(json.getJsonArray("items").size(), is(8));
+      assertThat(json.getJsonArray("items").getJsonObject(0).encodePrettily(),
+          is(new JsonObject()
+              .put("kbId", "11000000-0000-4000-8000-000000000000")
+              .put("title", "Title 11")
+              .put("printISSN", "1111-1111")
+              .put("onlineISSN", "1111-2222")
+              .put("accessType", "Controlled")
+              .put("metricType", "Total_Item_Requests")
+              .put("accessCountTotal", 6)
+              .put("accessCountsByPeriod", new JsonArray("[ 3, 3, null ]"))
+              .encodePrettily()));
     }));
   }
 
   @Test
   public void reqsByPubYearWithoutData(TestContext context) {
-    getReqsByPubYear(true, a1, "2999-04", "2999-05", "1Y")
+    getReqsByPubPeriod(true, a1, "2999-04", "2999-05", "1Y")
     .onComplete(context.asyncAssertSuccess(json -> {
       assertThat(json.getJsonArray("accessCountPeriods").encode(), is("[]"));
     }));
