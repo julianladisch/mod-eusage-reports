@@ -1408,12 +1408,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
             JsonArray pubPeriodsStr = new JsonArray();
             for (int i = 0; i < pubPeriods.size(); i++) {
-              LocalDate date = pubPeriods.get(i);
-              if (pubPeriodInMonths % 12 == 0) {
-                pubPeriodsStr.add("" + date.getYear());
-              } else {
-                pubPeriodsStr.add("" + date.getYear() + "-" + date.getMonthValue());
-              }
+              String date = pubPeriods.get(i).toString();
+              // remove 6 or 3 characters from the end of a date like 2021-12-31
+              // or a Bronze Age date like -1500-01-01
+              int charsToRemove = (pubPeriodInMonths % 12 == 0) ? 6 : 3;
+              pubPeriodsStr.add(date.substring(0, date.length() - charsToRemove));
             }
             return new JsonObject()
                 .put("agreementId", agreementId)
