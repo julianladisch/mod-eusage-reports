@@ -216,6 +216,8 @@ paths:
     get:
       description: Return requests by publication year where usageDateRange falls within startDate, endDate.
         Grouping controlled by periodOfUse.
+        "accessCountPeriods" array lists the publication years to be used as column labels for numbers in the
+        "totalItemRequestsByPeriod", "uniqueItemRequestsByPeriod" and "accessCountsByPeriod" arrays.
       operationId: getReqsByPubYear
       responses:
         "200":

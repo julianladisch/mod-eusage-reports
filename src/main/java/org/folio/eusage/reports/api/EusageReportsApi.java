@@ -1142,17 +1142,15 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
-  private static class Periods {
-    private JsonArray accessCountPeriods = new JsonArray();
+  static class Periods {
+    private final Period period;
+    private final int periodInMonths;
+    private final JsonArray accessCountPeriods = new JsonArray();
     private final LocalDate startDate;
     /** End date (exclusive): the first day after the last period. */
     private final LocalDate endDate;
 
-    /**
-     * Adds the start LocalDate of each period to tuple and also the
-     * final end LocalDate (exclusive) to tuple.
-     */
-    public Periods(String start, String end, Tuple tuple) {
+    public Periods(String start, String end, String periodOfUse) {
       if (start.length() != end.length()) {
         throw new IllegalArgumentException(
             "startDate and endDate must have same length: " + start + " " + end);
@@ -1161,40 +1159,90 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         throw new IllegalArgumentException("startDate=" + start + " is after endDate=" + end);
       }
       boolean isYear = start.length() == 4;
+      if (periodOfUse == null) {
+        periodOfUse = isYear ? "1Y" : "1M";
+      }
+      periodInMonths = getPeriodInMonths(periodOfUse);
+      period = Period.ofMonths(periodInMonths);
       start += isYear ? "-01-01" : "-01";
       end   += isYear ? "-01-01" : "-01";
-      startDate = LocalDate.parse(start);
-      endDate = LocalDate.parse(end);
+      startDate = floorMonths(LocalDate.parse(start), periodInMonths);
+      endDate   = floorMonths(LocalDate.parse(end), periodInMonths).plus(period);
 
       if (Period.between(startDate, endDate).getYears() > 10) {
         throw new IllegalArgumentException(
             "Must no exceed 10 years: startDate=" + start + ", endDate= " + end);
       }
 
-      Period period = isYear ? Period.ofYears(1) : Period.ofMonths(1);
       LocalDate date = startDate;
-      tuple.addLocalDate(date);
       do {
-        accessCountPeriods.add(date.toString().substring(0, isYear ? 4 : 7));
+        accessCountPeriods.add(periodLabel(date));
         date = date.plus(period);
-        tuple.addLocalDate(date);
-      } while (date.compareTo(endDate) <= 0);
+      } while (date.isBefore(endDate));
+    }
+
+    /**
+     * Convert month string or year string to number of months: 6M -> 6, 2Y -> 24.
+     */
+    private static int getPeriodInMonths(String period) {
+      int months = Integer.parseUnsignedInt(period, 0, period.length() - 1, 10);
+      if (period.endsWith("Y")) {
+        months *= 12;
+      }
+      return months;
+    }
+
+    /**
+     * Start of the period date belongs to, periods are n months long. Examples:
+     * <br>Begin of quarter (3 months): floorMonths("2019-05-17", 3) = "2019-04-01".
+     * <br>Begin of decade (10 years): floorMonths("2019-05-17", 120) = "2010-01-01".
+     */
+    static LocalDate floorMonths(LocalDate date, int months) {
+      int m = ((12 * date.getYear() + date.getMonthValue() - 1) / months) * months;
+      return LocalDate.of(m / 12, m % 12 + 1, 1);
+    }
+
+    /**
+     * Label like "2021" or "2020 - 2024" or "2021-05" or "2021-04 - 2021-06".
+     */
+    public String periodLabel(LocalDate date) {
+      String startStr = date.toString();
+      if (periodInMonths == 1) {
+        return startStr.substring(0, startStr.length() - 3);
+      }
+      if (periodInMonths == 12) {
+        return startStr.substring(0, startStr.length() - 6);
+      }
+      if (periodInMonths % 12 == 0) {
+        String endStr = date.plusMonths(periodInMonths - 1).toString();
+        return startStr.substring(0, startStr.length() - 6) + " - "
+          + endStr.subSequence(0, endStr.length() - 6);
+      }
+      String endStr = date.plusMonths(periodInMonths - 1).toString();
+      return startStr.substring(0, startStr.length() - 3) + " - "
+          + endStr.subSequence(0, endStr.length() - 3);
     }
 
     public int size() {
       return accessCountPeriods.size();
     }
 
-    public JsonArray getAccessCountPeriods() {
-      return accessCountPeriods;
+    public void addStartDates(Tuple tuple) {
+      LocalDate date = startDate;
+      do {
+        tuple.addLocalDate(date);
+        date = date.plus(period);
+      } while (date.isBefore(endDate));
     }
   }
 
   Future<JsonObject> getUseOverTime(TenantPgPool pool,
       boolean isJournal, boolean includeOA, String agreementId, String start, String end) {
 
+    Periods periods = new Periods(start, end, null);
     Tuple tuple = Tuple.of(agreementId);
-    Periods periods = new Periods(start, end, tuple);
+    periods.addStartDates(tuple);
+    tuple.addLocalDate(periods.endDate);
 
     StringBuilder sql = new StringBuilder();
     if (includeOA) {
@@ -1249,7 +1297,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       });
       return new JsonObject()
           .put("agreementId", agreementId)
-          .put("accessCountPeriods", periods.getAccessCountPeriods())
+          .put("accessCountPeriods", periods.accessCountPeriods)
           .put("totalItemRequestsTotal", LongAdder.sum(totalItemRequestsByPeriod))
           .put("totalItemRequestsByPeriod", LongAdder.longArray(totalItemRequestsByPeriod))
           .put("uniqueItemRequestsTotal", LongAdder.sum(uniqueItemRequestsByPeriod))
@@ -1332,8 +1380,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     String agreementId = ctx.request().params().get("agreementId");
     String start = ctx.request().params().get("startDate");
     String end = ctx.request().params().get("endDate");
-    String pubPeriodInMonths = ctx.request().params().get("periodOfUse");
-    return getReqsByPubYear(pool, includeOA, agreementId, start, end, pubPeriodInMonths)
+    String periodOfUse = ctx.request().params().get("periodOfUse");
+
+    return getReqsByPubYear(pool, includeOA, agreementId, start, end, periodOfUse)
         .map(json -> {
           ctx.response().setStatusCode(200);
           ctx.response().putHeader("Content-Type", "application/json");
@@ -1343,48 +1392,58 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<JsonObject> getReqsByPubYear(TenantPgPool pool, boolean includeOA, String agreementId,
-      String start, String end, String pubPeriodInMonthsStr) {
+      String start, String end, String periodOfUse) {
 
-    Tuple periodsTuple = Tuple.of(agreementId);
-    Periods usePeriods = new Periods(start, end, periodsTuple);
-    int pubPeriodInMonths = getPubPeriodInMonths(pubPeriodInMonthsStr);
+    Periods usePeriods = new Periods(start, end, periodOfUse);
 
-    return getPubPeriods(pool, agreementId, usePeriods, pubPeriodInMonths)
-        .compose(pubPeriods -> {
+    return getPubPeriods(pool, agreementId, usePeriods, 12)
+        .compose(pubYears -> {
           StringBuilder sql = new StringBuilder();
 
-          if (includeOA) {
-            reqsByPubYear(sql, pool, true, true, pubPeriods.size());
+          for (int i = 0; i < usePeriods.size(); i++) {
+            if (i > 0) {
+              sql.append(" UNION ");
+            }
+            if (includeOA) {
+              reqsByPubYear(sql, pool, true, true, pubYears.size(), i);
+              sql.append(" UNION ");
+              reqsByPubYear(sql, pool, true, false, pubYears.size(), i);
+              sql.append(" UNION ");
+            }
+            reqsByPubYear(sql, pool, false, true, pubYears.size(), i);
             sql.append(" UNION ");
-            reqsByPubYear(sql, pool, true, false, pubPeriods.size());
-            sql.append(" UNION ");
+            reqsByPubYear(sql, pool, false, false, pubYears.size(), i);
           }
-          reqsByPubYear(sql, pool, false, true, pubPeriods.size());
-          sql.append(" UNION ");
-          reqsByPubYear(sql, pool, false, false, pubPeriods.size());
-          sql.append(" ORDER BY title, kbId, accessType, metricType");
+          sql.append(" ORDER BY title, kbId, accessType, periodOfUse, metricType");
 
           Tuple tuple = Tuple.of(agreementId);
-          if (! pubPeriods.isEmpty()) {
-            tuple.addLocalDate(usePeriods.startDate);
-            tuple.addLocalDate(usePeriods.endDate);
-            pubPeriods.forEach(pubPeriodStart -> {
-              tuple.addLocalDate(pubPeriodStart);
-              tuple.addLocalDate(pubPeriodStart.plusMonths(pubPeriodInMonths));
+          if (! pubYears.isEmpty()) {
+            pubYears.forEach(year -> {
+              tuple.addLocalDate(year);
+              tuple.addLocalDate(year.plusYears(1));
             });
           }
+
+          LocalDate date = usePeriods.startDate;
+          do {
+            tuple.addLocalDate(date);
+            tuple.addString(usePeriods.periodLabel(date));
+            date = date.plus(usePeriods.period);
+          } while (date.isBefore(usePeriods.endDate));
+          tuple.addLocalDate(usePeriods.endDate);
+
           System.out.println(sql.toString());
           System.out.println(tuple.deepToString());
           return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
             JsonArray items = new JsonArray();
-            LongAdder [] totalItemRequestsByPub = LongAdder.arrayOfLength(pubPeriods.size());
-            LongAdder [] uniqueItemRequestsByPub = LongAdder.arrayOfLength(pubPeriods.size());
+            LongAdder [] totalItemRequestsByPub = LongAdder.arrayOfLength(pubYears.size());
+            LongAdder [] uniqueItemRequestsByPub = LongAdder.arrayOfLength(pubYears.size());
             rowSet.forEach(row -> {
               JsonArray accessCountsByPub = new JsonArray();
               LongAdder accessCountTotal = new LongAdder();
               boolean unique = "Unique_Item_Requests".equals(row.getString("metrictype"));
-              final int columnsToSkip = 6;
-              for (int i = 0; i < pubPeriods.size(); i++) {
+              final int columnsToSkip = 7;
+              for (int i = 0; i < pubYears.size(); i++) {
                 Long l = row.getLong(columnsToSkip + i);
                 accessCountsByPub.add(l);
                 accessCountTotal.add(l);
@@ -1399,6 +1458,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                   .put("title", row.getString("title"))
                   .put("printISSN", row.getString("printissn"))
                   .put("onlineISSN", row.getString("onlineissn"))
+                  .put("periodOfUse", row.getString("periodofuse"))
                   .put("accessType", row.getString("accesstype"))
                   .put("metricType", row.getString("metrictype"))
                   .put("accessCountTotal", accessCountTotal.get())
@@ -1406,17 +1466,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
               items.add(json);
             });
 
-            JsonArray pubPeriodsStr = new JsonArray();
-            for (int i = 0; i < pubPeriods.size(); i++) {
-              String date = pubPeriods.get(i).toString();
-              // remove 6 or 3 characters from the end of a date like 2021-12-31
-              // or a Bronze Age date like -1500-01-01
-              int charsToRemove = (pubPeriodInMonths % 12 == 0) ? 6 : 3;
-              pubPeriodsStr.add(date.substring(0, date.length() - charsToRemove));
-            }
+            JsonArray pubYearStrings = new JsonArray();
+            pubYears.forEach(pubYear -> pubYearStrings.add("" + pubYear.getYear()));
             return new JsonObject()
                 .put("agreementId", agreementId)
-                .put("accessCountPeriods", pubPeriodsStr)
+                .put("accessCountPeriods", pubYearStrings)
                 .put("totalItemRequestsTotal", LongAdder.sum(totalItemRequestsByPub))
                 .put("totalItemRequestsByPeriod", LongAdder.longArray(totalItemRequestsByPub))
                 .put("uniqueItemRequestsTotal", LongAdder.sum(uniqueItemRequestsByPub))
@@ -1424,18 +1478,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                 .put("items", items);
           });
         });
-  }
-
-  /**
-   * Convert month string or year string to month number: 6M -> 6, 2Y -> 24.
-   */
-  private int getPubPeriodInMonths(String pubPeriodInMonthsStr) {
-    int pubPeriodInMonths = Integer.parseUnsignedInt(
-        pubPeriodInMonthsStr, 0, pubPeriodInMonthsStr.length() - 1, 10);
-    if (pubPeriodInMonthsStr.endsWith("Y")) {
-      pubPeriodInMonths *= 12;
-    }
-    return pubPeriodInMonths;
   }
 
   /**
@@ -1468,6 +1510,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
    * <pre>
    * SELECT title_entries.kbTitleId AS kbId,
    *        kbTitleName, printISSN, onlineISSN,
+   *        $7 AS periodOfUse,
    *        'OA_Gold' AS accessType, 'Unique_Item_Requests' AS metricType,
    *        n0, n1
    * FROM title_entries
@@ -1475,33 +1518,44 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
    * LEFT JOIN (
    *   SELECT titleEntryId, sum(uniqueAcessCount) AS n0
    *   FROM title_data
-   *   WHERE daterange($2, $3) @> lower(usageDateRange)
-   *     AND daterange($4, $5) @> publicationDate
+   *   WHERE daterange($2, $3) @> publicationDate
+   *     AND daterange($5, $7) @> lower(usageDateRange)
    *     AND openAccess
    *   GROUP BY titleEntryId
    * ) t0 ON t0.titleEntryId = title_entries.id
    * LEFT JOIN (
    *   SELECT titleEntryId, sum(uniqueAccessCount) AS n1
    *   FROM title_data
-   *   WHERE daterange($2, $3) @> lower(usageDateRange)
-   *     AND daterange($6, $7) @> publicationDate
+   *   WHERE daterange($4, $5) @> publicationDate
+   *     AND daterange($5, $7) @> lower(usageDateRange)
    *     AND openAccess
    *   GROUP BY titleEntryId
    * ) t1 ON t1.titleEntryId = title_entries.id
    * WHERE agreementId = $1
    *   AND (printISSN IS NOT NULL OR onlineISSN IS NOT NULL)
    * </pre>
+   *
+   * <p>This is for $1 = agreementId,
+   * <br>$2, $3 = 1st publication year start and end
+   * <br>$4, $5 = 2nd publication year start and end
+   * <br>$6 = start of usage range 1
+   * <br>$7 = label for usage range 1
+   * <br>$8 = end of usage range 1
+   * ($8 is also start of usage range 2 if there were more usage ranges)
    */
   private static void reqsByPubYear(StringBuilder sql, TenantPgPool pool,
-      boolean openAccess, boolean unique, int publicationPeriods) {
+      boolean openAccess, boolean unique, int publicationPeriods, int usePeriod) {
 
+    final int pubPeriodPos = 2;
+    final int usePeriodPos = pubPeriodPos + 2 * publicationPeriods;
     sql
-        .append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title, ")
-        .append("printISSN, onlineISSN, ")
-        .append(openAccess ? "'OA_Gold' AS accessType, "
-                           : "'Controlled' AS accessType, ")
-        .append(unique ? "'Unique_Item_Requests' AS metricType "
-                       : "'Total_Item_Requests' AS metricType ");
+        .append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,")
+        .append(" printISSN, onlineISSN, $")
+        .append(usePeriodPos + 2 * usePeriod + 1).append(" AS periodOfUse,")
+        .append(openAccess ? " 'OA_Gold' AS accessType,"
+                           : " 'Controlled' AS accessType,")
+        .append(unique ? " 'Unique_Item_Requests' AS metricType"
+                       : " 'Total_Item_Requests' AS metricType");
     for (int i = 0; i < publicationPeriods; i++) {
       sql.append(", n").append(i);
     }
@@ -1514,9 +1568,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       .append(" SELECT titleEntryId, sum(")
         .append(unique ? "uniqueAccessCount" : "totalAccessCount").append(") AS n").append(i)
       .append(" FROM ").append(titleDataTable(pool))
-      .append(" WHERE daterange($2, $3) @> lower(usageDateRange)")
-        .append(" AND daterange($").append(4 + 2 * i).append(", $").append(4 + 2 * i + 1)
-          .append(") @> publicationDate")
+      .append(" WHERE daterange($")
+          .append(pubPeriodPos + 2 * i).append("::date, $")
+          .append(pubPeriodPos + 2 * i + 1).append("::date) @> publicationDate")
+        .append(" AND daterange($")
+          .append(usePeriodPos + 2 * usePeriod).append("::date, $")
+          .append(usePeriodPos + 2 * usePeriod + 2).append("::date) @> lower(usageDateRange)")
         .append(openAccess ? " AND openAccess" : " AND NOT openAccess")
       .append(" GROUP BY titleEntryId")
       .append(" ) t").append(i)
@@ -1524,7 +1581,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         .append(titleEntriesTable(pool)).append(".id");
     }
     sql
-        .append(" WHERE agreementId = $1")
+        .append(" WHERE agreementId = $1::uuid")
         .append("   AND (printISSN IS NOT NULL OR onlineISSN IS NOT NULL)");
   }
 
@@ -1626,16 +1683,15 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + ")",
         "CREATE INDEX IF NOT EXISTS agreement_entries_agreementId ON "
             + agreementEntriesTable(pool) + " USING btree(agreementId)",
-        /* floor_months(date, n) returns the start of the period date belongs to,
-         * periods are n months long. Examples:
-         * Begin of quarter (3 months): floor_months('2019-05-17', 3) = '2019-04-01'.
-         * Begin of decade (10 years): floor_months('2019-05-17', 120) = '2010-01-01'.
-         */
         "CREATE OR REPLACE FUNCTION floor_months(date, integer) RETURNS date AS $$\n"
-        + "  SELECT make_date(m / 12, m % 12 + 1, 1)\n"
-        + "  FROM (SELECT ((12 * extract(year FROM $1)::integer\n"
-        + "                 + extract(month FROM $1)::integer - 1) / $2) * $2) AS x(m)\n"
-        + "$$ LANGUAGE SQL IMMUTABLE STRICT"
+            + "-- floor_months(date, n) returns the start of the period date belongs to,\n"
+            + "-- periods are n months long. Examples:\n"
+            + "-- Begin of quarter (3 months): floor_months('2019-05-17', 3) = '2019-04-01'.\n"
+            + "-- Begin of decade (10 years): floor_months('2019-05-17', 120) = '2010-01-01'.\n"
+            + "  SELECT make_date(m / 12, m % 12 + 1, 1)\n"
+            + "  FROM (SELECT ((12 * extract(year FROM $1)::integer\n"
+            + "                 + extract(month FROM $1)::integer - 1) / $2) * $2) AS x(m)\n"
+            + "$$ LANGUAGE SQL IMMUTABLE STRICT"
       ));
   }
 }
