@@ -40,6 +40,7 @@ import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.mockito.quality.Strictness;
 import org.testcontainers.containers.PostgreSQLContainer;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -338,6 +339,7 @@ public class EusageReportsApiTest {
   }
 
   private void floorMonths(TestContext context, String date, int months, String expected) {
+    assertThat(EusageReportsApi.Periods.floorMonths(LocalDate.parse(date), months).toString(), is(expected));
     String sql = "SELECT " + pool.getSchema() + ".floor_months('" + date + "'::date, " + months + ")";
     pool.query(sql).execute().onComplete(context.asyncAssertSuccess(res -> {
       assertThat(sql, res.iterator().next().getLocalDate(0).toString(), is(expected));
@@ -371,25 +373,38 @@ public class EusageReportsApiTest {
 
   @Test
   public void reqsByPubYear(TestContext context) {
-    getReqsByPubPeriod(true, a1, "2020-04", "2020-05", "6M")
+    getReqsByPubPeriod(true, a1, "2020-04", "2020-08", "6M")
     .onComplete(context.asyncAssertSuccess(json -> {
       System.out.println(json.encodePrettily());
-      assertThat(json.getInteger("totalItemRequestsTotal"), is(22));
-      assertThat(json.getInteger("uniqueItemRequestsTotal"), is(20));
-      assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(), contains("1999-01", "2000-01", "2010-01"));
-      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining(3L, 3L, 16L)));
-      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining(2L, 3L, 15L)));
-      assertThat(json.getJsonArray("items").size(), is(8));
+      assertThat(json.getInteger("totalItemRequestsTotal"), is(70));
+      assertThat(json.getInteger("uniqueItemRequestsTotal"), is(50));
+      assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(), contains("1999", "2000", "2010"));
+      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining(5L, 15L, 50L)));
+      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining(3L, 7L, 40L)));
+      assertThat(json.getJsonArray("items").size(), is(16));
       assertThat(json.getJsonArray("items").getJsonObject(0).encodePrettily(),
           is(new JsonObject()
               .put("kbId", "11000000-0000-4000-8000-000000000000")
               .put("title", "Title 11")
               .put("printISSN", "1111-1111")
               .put("onlineISSN", "1111-2222")
+              .put("periodOfUse", "2020-01 - 2020-06")
               .put("accessType", "Controlled")
               .put("metricType", "Total_Item_Requests")
-              .put("accessCountTotal", 6)
-              .put("accessCountsByPeriod", new JsonArray("[ 3, 3, null ]"))
+              .put("accessCountTotal", 20)
+              .put("accessCountsByPeriod", new JsonArray("[ 5, 15, null ]"))
+              .encodePrettily()));
+      assertThat(json.getJsonArray("items").getJsonObject(2).encodePrettily(),
+          is(new JsonObject()
+              .put("kbId", "11000000-0000-4000-8000-000000000000")
+              .put("title", "Title 11")
+              .put("printISSN", "1111-1111")
+              .put("onlineISSN", "1111-2222")
+              .put("periodOfUse", "2020-07 - 2020-12")
+              .put("accessType", "Controlled")
+              .put("metricType", "Total_Item_Requests")
+              .put("accessCountTotal", null)
+              .put("accessCountsByPeriod", new JsonArray("[ null, null, null ]"))
               .encodePrettily()));
     }));
   }
