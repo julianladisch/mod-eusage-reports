@@ -1,6 +1,6 @@
 in: query
 name: startDate
-description: last year for year reporting, or last month for month reporting
+description: first year for year reporting, or first month for month reporting
 required: true
 schema:
    type: string
