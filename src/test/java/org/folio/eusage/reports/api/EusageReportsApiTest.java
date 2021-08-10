@@ -361,6 +361,39 @@ public class EusageReportsApiTest {
     }));
   }
 
+  @Test
+  public void reqsByDateOfUseWithRoutingContext(TestContext context) {
+    RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
+    when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
+    when(routingContext.request().params().get("foo")).thenReturn("bar");
+    when(routingContext.request().params().get("agreementId")).thenReturn(a3);
+    when(routingContext.request().params().get("startDate")).thenReturn("2020-05");
+    when(routingContext.request().params().get("endDate")).thenReturn("2020-06");
+    when(routingContext.request().params().get("includeOA")).thenReturn("true");
+    new EusageReportsApi().getReqsByDateOfUse(vertx, routingContext)
+    .onComplete(context.asyncAssertSuccess(x -> {
+      ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+      verify(routingContext.response()).end(body.capture());
+      JsonObject json = new JsonObject(body.getValue());
+      assertThat(json.getLong("totalItemRequestsTotal"), is(42L));
+      assertThat(json.getLong("uniqueItemRequestsTotal"), is(21L));
+      assertThat(json.getJsonArray("totalItemRequestsByPeriod"), contains(40, 2));
+      assertThat(json.getJsonArray("uniqueItemRequestsByPeriod"), contains(20, 1));
+      assertThat(json.getJsonArray("items").getJsonObject(0).encodePrettily(),
+          is(new JsonObject()
+              .put("kbId", "21000000-0000-4000-8000-000000000000")
+              .put("title", "Title 21")
+              .put("printISSN", "2121-1111")
+              .put("onlineISSN", null)
+              .put("publicationYear", 2010)
+              .put("accessType", "Controlled")
+              .put("metricType", "Total_Item_Requests")
+              .put("accessCountTotal", 40)
+              .put("accessCountsByPeriod", new JsonArray("[ 40, null ]"))
+              .encodePrettily()));
+    }));
+  }
+
   private void floorMonths(TestContext context, String date, int months, String expected) {
     assertThat(EusageReportsApi.Periods.floorMonths(LocalDate.parse(date), months).toString(), is(expected));
     String sql = "SELECT " + pool.getSchema() + ".floor_months('" + date + "'::date, " + months + ")";
