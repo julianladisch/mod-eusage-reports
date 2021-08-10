@@ -238,7 +238,7 @@ public class EusageReportsApiTest {
   }
 
   private Future<JsonObject> getUseOverTime(boolean isJournal, boolean includeOA, String agreementId, String start, String end) {
-    return new EusageReportsApi().getUseOverTime(pool, isJournal, includeOA, agreementId, start, end);
+    return new EusageReportsApi().getUseOverTime(pool, isJournal, includeOA, false, agreementId, start, end);
   }
 
   @Test
@@ -338,6 +338,62 @@ public class EusageReportsApiTest {
     }));
   }
 
+  @Test
+  public void reqsByDateOfUse(TestContext context) {
+    new EusageReportsApi().getUseOverTime(pool, true, true, true, a3, "2020-05", "2020-06")
+    .onComplete(context.asyncAssertSuccess(json -> {
+      assertThat(json.getLong("totalItemRequestsTotal"), is(42L));
+      assertThat(json.getLong("uniqueItemRequestsTotal"), is(21L));
+      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining(40L, 2L)));
+      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining(20L, 1L)));
+      assertThat(json.getJsonArray("items").getJsonObject(0).encodePrettily(),
+          is(new JsonObject()
+              .put("kbId", "21000000-0000-4000-8000-000000000000")
+              .put("title", "Title 21")
+              .put("printISSN", "2121-1111")
+              .put("onlineISSN", null)
+              .put("publicationYear", 2010)
+              .put("accessType", "Controlled")
+              .put("metricType", "Total_Item_Requests")
+              .put("accessCountTotal", 40L)
+              .put("accessCountsByPeriod", new JsonArray("[ 40, null ]"))
+              .encodePrettily()));
+    }));
+  }
+
+  @Test
+  public void reqsByDateOfUseWithRoutingContext(TestContext context) {
+    RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
+    when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
+    when(routingContext.request().params().get("foo")).thenReturn("bar");
+    when(routingContext.request().params().get("agreementId")).thenReturn(a3);
+    when(routingContext.request().params().get("startDate")).thenReturn("2020-05");
+    when(routingContext.request().params().get("endDate")).thenReturn("2020-06");
+    when(routingContext.request().params().get("includeOA")).thenReturn("true");
+    new EusageReportsApi().getReqsByDateOfUse(vertx, routingContext)
+    .onComplete(context.asyncAssertSuccess(x -> {
+      ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+      verify(routingContext.response()).end(body.capture());
+      JsonObject json = new JsonObject(body.getValue());
+      assertThat(json.getLong("totalItemRequestsTotal"), is(42L));
+      assertThat(json.getLong("uniqueItemRequestsTotal"), is(21L));
+      assertThat(json.getJsonArray("totalItemRequestsByPeriod"), contains(40, 2));
+      assertThat(json.getJsonArray("uniqueItemRequestsByPeriod"), contains(20, 1));
+      assertThat(json.getJsonArray("items").getJsonObject(0).encodePrettily(),
+          is(new JsonObject()
+              .put("kbId", "21000000-0000-4000-8000-000000000000")
+              .put("title", "Title 21")
+              .put("printISSN", "2121-1111")
+              .put("onlineISSN", null)
+              .put("publicationYear", 2010)
+              .put("accessType", "Controlled")
+              .put("metricType", "Total_Item_Requests")
+              .put("accessCountTotal", 40)
+              .put("accessCountsByPeriod", new JsonArray("[ 40, null ]"))
+              .encodePrettily()));
+    }));
+  }
+
   private void floorMonths(TestContext context, String date, int months, String expected) {
     assertThat(EusageReportsApi.Periods.floorMonths(LocalDate.parse(date), months).toString(), is(expected));
     String sql = "SELECT " + pool.getSchema() + ".floor_months('" + date + "'::date, " + months + ")";
@@ -348,7 +404,7 @@ public class EusageReportsApiTest {
 
   /*
    * Cannot combine https://github.com/Pragmatists/JUnitParams and
-   * https://github.com/vert-x3/vertx-unit in a test class.
+   * https://github.com/vert-x3/vertx-unit in a single test class.
    *
    * TODO: Switch to https://github.com/vert-x3/vertx-junit5 that allows
    * to use JUnit 5 built-in parameterized tests.

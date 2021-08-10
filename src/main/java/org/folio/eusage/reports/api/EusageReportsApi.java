@@ -1110,38 +1110,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
-  Future<Void> getUseOverTime(Vertx vertx, RoutingContext ctx) {
-    String format = ctx.request().params().get("format");
-    boolean isJournal;
-
-    switch (format) {
-      case "JOURNAL":
-        isJournal = true;
-        break;
-      case "BOOK":
-        isJournal = false;
-        break;
-      case "DATABASE":
-        return getUseOverTimeDatabase(vertx, ctx);
-      default:
-        throw new IllegalArgumentException("format = " + format);
-    }
-
-    TenantPgPool pool = TenantPgPool.pool(vertx, TenantUtil.tenant(ctx));
-    String agreementId = ctx.request().params().get("agreementId");
-    String start = ctx.request().params().get("startDate");
-    String end = ctx.request().params().get("endDate");
-    boolean includeOA = "true".equalsIgnoreCase(ctx.request().params().get("includeOA"));
-
-    return getUseOverTime(pool, isJournal, includeOA, agreementId, start, end)
-        .map(json -> {
-          ctx.response().setStatusCode(200);
-          ctx.response().putHeader("Content-Type", "application/json");
-          ctx.response().end(json.encodePrettily());
-          return null;
-        });
-  }
-
   static class Periods {
     private final Period period;
     private final int periodInMonths;
@@ -1236,8 +1204,41 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     }
   }
 
+  Future<Void> getUseOverTime(Vertx vertx, RoutingContext ctx) {
+    String format = ctx.request().params().get("format");
+    boolean isJournal;
+
+    switch (format) {
+      case "JOURNAL":
+        isJournal = true;
+        break;
+      case "BOOK":
+        isJournal = false;
+        break;
+      case "DATABASE":
+        return getUseOverTimeDatabase(vertx, ctx);
+      default:
+        throw new IllegalArgumentException("format = " + format);
+    }
+
+    TenantPgPool pool = TenantPgPool.pool(vertx, TenantUtil.tenant(ctx));
+    String agreementId = ctx.request().params().get("agreementId");
+    String start = ctx.request().params().get("startDate");
+    String end = ctx.request().params().get("endDate");
+    boolean includeOA = "true".equalsIgnoreCase(ctx.request().params().get("includeOA"));
+
+    return getUseOverTime(pool, isJournal, includeOA, false, agreementId, start, end)
+        .map(json -> {
+          ctx.response().setStatusCode(200);
+          ctx.response().putHeader("Content-Type", "application/json");
+          ctx.response().end(json.encodePrettily());
+          return null;
+        });
+  }
+
   Future<JsonObject> getUseOverTime(TenantPgPool pool,
-      boolean isJournal, boolean includeOA, String agreementId, String start, String end) {
+      boolean isJournal, boolean includeOA, boolean groupByPublicationYear,
+      String agreementId, String start, String end) {
 
     Periods periods = new Periods(start, end, null);
     Tuple tuple = Tuple.of(agreementId);
@@ -1246,15 +1247,19 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
     StringBuilder sql = new StringBuilder();
     if (includeOA) {
-      useOverTime(sql, pool, isJournal, true, true, periods.size());
+      useOverTime(sql, pool, isJournal, true, true, groupByPublicationYear, periods.size());
       sql.append(" UNION ");
-      useOverTime(sql, pool, isJournal, true, false, periods.size());
+      useOverTime(sql, pool, isJournal, true, false, groupByPublicationYear, periods.size());
       sql.append(" UNION ");
     }
-    useOverTime(sql, pool, isJournal, false, true, periods.size());
+    useOverTime(sql, pool, isJournal, false, true, groupByPublicationYear, periods.size());
     sql.append(" UNION ");
-    useOverTime(sql, pool, isJournal, false, false, periods.size());
-    sql.append(" ORDER BY title, kbId, accessType, metricType");
+    useOverTime(sql, pool, isJournal, false, false, groupByPublicationYear, periods.size());
+    if (groupByPublicationYear) {
+      sql.append(" ORDER BY title, kbId, accessType, publicationYear, metricType");
+    } else {
+      sql.append(" ORDER BY title, kbId, accessType, metricType");
+    }
 
     return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
       JsonArray items = new JsonArray();
@@ -1264,7 +1269,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         JsonArray accessCountsByPeriod = new JsonArray();
         LongAdder accessCountTotal = new LongAdder();
         boolean unique = "Unique_Item_Requests".equals(row.getString("metrictype"));
-        final int journalColumnsToSkip = 6;
+        final int journalColumnsToSkip = groupByPublicationYear ? 7 : 6;
         final int bookColumnsToSkip = 5;
         int pos0 = isJournal ? journalColumnsToSkip : bookColumnsToSkip;
         for (int i = 0; i < periods.size(); i++) {
@@ -1285,8 +1290,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
               .put("printISSN", row.getString("printissn"))
               .put("onlineISSN", row.getString("onlineissn"));
         } else {
-          json
-              .put("ISBN", row.getString("isbn"));
+          json.put("ISBN", row.getString("isbn"));
+        }
+        if (groupByPublicationYear) {
+          json.put("publicationYear", row.getInteger("publicationyear"));
         }
         json
             .put("accessType", row.getString("accesstype"))
@@ -1312,32 +1319,40 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
    * <pre>
    * SELECT title_entries.kbTitleId AS kbId,
    *        kbTitleName, printISSN, onlineISSN,
+   *        publicationYear,
    *        'OA_Gold' AS accessType, 'Unique_Item_Requests' AS metricType,
    *        n0, n1
    * FROM title_entries
    * JOIN agreement_entries ON agreement_entries.kbTitleId = title_entries.id
    * LEFT JOIN (
-   *   SELECT titleEntryId, sum(uniqueAcessCount) AS n0
+   *   SELECT titleEntryId,
+   *          extract(year from publicationDate)::integer AS publicationYear,
+   *          sum(uniqueAccessCount) AS n0
    *   FROM title_data
    *   WHERE daterange($2, $3) @> lower(usageDateRange) AND openAccess
-   *   GROUP BY titleEntryId
+   *   GROUP BY 1, 2
    * ) t0 ON t0.titleEntryId = title_entries.id
    * LEFT JOIN (
-   *   SELECT titleEntryId, sum(uniqueAccessCount) AS n1
+   *   SELECT titleEntryId,
+   *          extract(year from publicationDate)::integer AS publicationYear,
+   *          sum(uniqueAccessCount) AS n1
    *   FROM title_data
    *   WHERE daterange($3, $4) @> lower(usageDateRange) AND openAccess
-   *   GROUP BY titleEntryId
+   *   GROUP BY 1, 2
    * ) t1 ON t1.titleEntryId = title_entries.id
    * WHERE agreementId = $1
    *   AND NOT (printISSN IS NULL AND onlineISSN IS NULL)
    * </pre>
    */
   private static void useOverTime(StringBuilder sql, TenantPgPool pool,
-      boolean isJournal, boolean openAccess, boolean unique, int periods) {
+      boolean isJournal, boolean openAccess, boolean unique,
+      boolean groupByPublicationYear, int periods) {
 
     sql.append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,")
         .append(isJournal ? " printISSN, onlineISSN, "
                         : " ISBN, ")
+        .append(groupByPublicationYear ? (periods > 0 ? "t0.publicationYear AS publicationYear, "
+                                                      : "null AS publicationYear, ") : "")
         .append(openAccess ? "'OA_Gold' AS accessType, "
                            : "'Controlled' AS accessType, ")
         .append(unique ? "'Unique_Item_Requests' AS metricType "
@@ -1350,19 +1365,40 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     .append(" JOIN ").append(agreementEntriesTable(pool)).append(" USING (kbTitleId)");
     for (int i = 0; i < periods; i++) {
       sql.append(" LEFT JOIN (")
-      .append(" SELECT titleEntryId, sum(")
-        .append(unique ? "uniqueAccessCount" : "totalAccessCount").append(") AS n").append(i)
+      .append(" SELECT titleEntryId, ")
+        .append(groupByPublicationYear
+            ? "extract(year FROM publicationDate)::integer AS publicationYear, "
+            : "")
+        .append("sum(")
+        .append(unique ? "uniqueAccessCount" : "totalAccessCount")
+        .append(") AS n").append(i)
       .append(" FROM ").append(titleDataTable(pool))
       .append(" WHERE daterange($").append(2 + i).append(", $").append(2 + i + 1)
         .append(") @> lower(usageDateRange)")
         .append(openAccess ? " AND openAccess" : " AND NOT openAccess")
-      .append(" GROUP BY titleEntryId")
+      .append(groupByPublicationYear ? " GROUP BY 1, 2" : " GROUP BY 1")
       .append(" ) t").append(i).append(" ON t").append(i).append(".titleEntryId = ")
         .append(titleEntriesTable(pool)).append(".id");
     }
     sql.append(" WHERE agreementId = $1 AND ")
         .append(isJournal ? "NOT " : "")
         .append("(printISSN IS NULL AND onlineISSN IS NULL)");
+  }
+
+  Future<Void> getReqsByDateOfUse(Vertx vertx, RoutingContext ctx) {
+    TenantPgPool pool = TenantPgPool.pool(vertx, TenantUtil.tenant(ctx));
+    String agreementId = ctx.request().params().get("agreementId");
+    String start = ctx.request().params().get("startDate");
+    String end = ctx.request().params().get("endDate");
+    boolean includeOA = "true".equalsIgnoreCase(ctx.request().params().get("includeOA"));
+
+    return getUseOverTime(pool, true, includeOA, true, agreementId, start, end)
+        .map(json -> {
+          ctx.response().setStatusCode(200);
+          ctx.response().putHeader("Content-Type", "application/json");
+          ctx.response().end(json.encodePrettily());
+          return null;
+        });
   }
 
   Future<Void> getUseOverTimeDatabase(Vertx vertx, RoutingContext ctx) {
@@ -1612,6 +1648,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           add(routerBuilder, "getReportData", ctx -> getReportData(vertx, ctx));
           add(routerBuilder, "postFromAgreement", ctx -> postFromAgreement(vertx, ctx));
           add(routerBuilder, "getUseOverTime", ctx -> getUseOverTime(vertx, ctx));
+          add(routerBuilder, "getReqsByDateOfUse", ctx -> getReqsByDateOfUse(vertx, ctx));
           add(routerBuilder, "getReqsByPubYear", ctx -> getReqsByPubYear(vertx, ctx));
           return routerBuilder.createRouter();
         });

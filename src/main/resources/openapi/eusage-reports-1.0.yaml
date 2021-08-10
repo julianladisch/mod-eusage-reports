@@ -181,14 +181,12 @@ paths:
       - $ref: headers/okapi-tenant.yaml
       - $ref: headers/okapi-token.yaml
       - $ref: headers/okapi-url.yaml
-      - $ref: parameters/offset.yaml
-      - $ref: parameters/limit.yaml
       - $ref: parameters/agreement-id.yaml
       - $ref: parameters/start-date.yaml
       - $ref: parameters/end-date.yaml
       - $ref: parameters/include-oa.yaml
     get:
-      description: Return requests by date of use
+      description: Return requests by date of use; this is like use over time but additionally groups by publication year.
       operationId: getReqsByDateOfUse
       responses:
         "200":
