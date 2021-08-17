@@ -1,7 +1,8 @@
 package org.folio.tlib.postgres;
 
-import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.nullValue;
 
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -17,6 +18,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.folio.tlib.postgres.impl.TenantPgPoolImpl;
 import org.junit.AfterClass;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.ClassRule;
@@ -181,6 +183,8 @@ public class TenantPgPoolTest {
 
   @Test
   public void testSSL(TestContext context) throws IOException {
+    Assume.assumeThat(System.getenv("DB_HOST"), is(nullValue()));
+    Assume.assumeThat(System.getenv("DB_PORT"), is(nullValue()));
     configure("ssl=on");
     TenantPgPool.setMaxPoolSize("3");
     TenantPgPool.setServerPem(new String(TenantPgPoolTest.class.getClassLoader()
