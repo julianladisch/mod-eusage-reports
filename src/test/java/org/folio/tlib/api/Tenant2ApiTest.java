@@ -1,9 +1,11 @@
 package org.folio.tlib.api;
 
-import static org.hamcrest.CoreMatchers.nullValue;
-import static org.hamcrest.number.OrderingComparison.greaterThan;
-import static org.hamcrest.number.OrderingComparison.lessThan;
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.greaterThan;
+import static org.hamcrest.Matchers.lessThan;
+import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.nullValue;
 
 import io.restassured.RestAssured;
 import io.restassured.builder.RequestSpecBuilder;
@@ -35,9 +37,6 @@ import org.junit.Test;
 import org.junit.rules.Timeout;
 import org.junit.runner.RunWith;
 import org.testcontainers.containers.PostgreSQLContainer;
-
-import static org.hamcrest.Matchers.containsString;
-import static org.hamcrest.Matchers.is;
 
 @RunWith(VertxUnitRunner.class)
 public class Tenant2ApiTest {
@@ -142,6 +141,7 @@ public class Tenant2ApiTest {
 
   @Test
   public void testPostTenantBadPort() throws IOException {
+    Assume.assumeThat(System.getenv("DB_HOST"), is(nullValue()));
     Assume.assumeThat(System.getenv("DB_PORT"), is(nullValue()));
 
     String tenant = "testlib";
