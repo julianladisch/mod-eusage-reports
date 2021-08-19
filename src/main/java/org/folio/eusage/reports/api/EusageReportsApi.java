@@ -1328,7 +1328,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   /**
-   * Append to <code>sql</code>. The appended SELECT statement is like this:
+   * Append to <code>sql</code>. The appended SELECT statement is like this for kb titles:
    *
    * <pre>
    * SELECT title_entries.kbTitleId AS kbId,
@@ -1336,8 +1336,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
    *        publicationYear,
    *        'OA_Gold' AS accessType, 'Unique_Item_Requests' AS metricType,
    *        n0, n1
-   * FROM title_entries
-   * JOIN agreement_entries ON agreement_entries.kbTitleId = title_entries.id
+   * FROM agreement_entries
+   * JOIN title_entries USING (kbTitleId)
    * LEFT JOIN (
    *   SELECT titleEntryId,
    *          extract(year from publicationDate)::integer AS publicationYear,
@@ -1359,24 +1359,28 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
    * </pre>
    */
   private static void useOverTime(StringBuilder sql, TenantPgPool pool,
-      boolean isJournal, boolean openAccess, boolean unique,
-      boolean groupByPublicationYear, int periods) {
+                                  boolean isJournal, boolean openAccess, boolean unique,
+                                  boolean groupByPublicationYear, int periods) {
 
     sql.append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,")
         .append(isJournal ? " printISSN, onlineISSN, "
-                        : " ISBN, ")
+            : " ISBN, ")
         .append(groupByPublicationYear ? (periods > 0 ? "t0.publicationYear AS publicationYear, "
-                                                      : "null AS publicationYear, ") : "")
+            : "null AS publicationYear, ") : "")
         .append(openAccess ? "'OA_Gold' AS accessType, "
-                           : "'Controlled' AS accessType, ")
+            : "'Controlled' AS accessType, ")
         .append(unique ? "'Unique_Item_Requests' AS metricType "
-                       : "'Total_Item_Requests' AS metricType ");
+            : "'Total_Item_Requests' AS metricType ");
     for (int i = 0; i < periods; i++) {
       sql.append(", n").append(i);
     }
     sql
-    .append(" FROM ").append(titleEntriesTable(pool))
-    .append(" JOIN ").append(agreementEntriesTable(pool)).append(" USING (kbTitleId)");
+        .append(" FROM ").append(agreementEntriesTable(pool))
+        .append(" LEFT JOIN ").append(packageEntriesTable(pool))
+        .append(" USING (kbPackageId)")
+        .append(" JOIN ").append(titleEntriesTable(pool)).append(" ON")
+        .append(" title_entries.kbTitleId = agreement_entries.kbTitleId OR")
+        .append(" title_entries.kbTitleId = package_entries.kbTitleId");
     for (int i = 0; i < periods; i++) {
       sql.append(" LEFT JOIN (")
       .append(" SELECT titleEntryId, ")
@@ -1540,7 +1544,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     String sql =
         "SELECT distinct(" + pool.getSchema() + ".floor_months(publicationDate, $4::integer))"
         + " FROM " + agreementEntriesTable(pool)
-        + " JOIN " + titleEntriesTable(pool) + " USING (kbTitleId)"
+        + " LEFT JOIN " + packageEntriesTable(pool) + " USING (kbPackageId)"
+        + " JOIN " + titleEntriesTable(pool) + " ON"
+        + " title_entries.kbTitleId = agreement_entries.kbTitleId OR"
+        + " title_entries.kbTitleId = package_entries.kbTitleId"
         + " JOIN " + titleDataTable(pool) + " ON titleEntryId = title_entries.id"
         + " WHERE agreementId = $1"
         + "   AND publicationDate IS NOT NULL"
@@ -1563,8 +1570,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
    *        $7 AS periodOfUse,
    *        'OA_Gold' AS accessType, 'Unique_Item_Requests' AS metricType,
    *        n0, n1
-   * FROM title_entries
-   * JOIN agreement_entries ON agreement_entries.kbTitleId = title_entries.id
+   * FROM agreement_entries
+   * JOIN title_entries ON agreement_entries.kbTitleId = title_entries.id
    * LEFT JOIN (
    *   SELECT titleEntryId, sum(uniqueAcessCount) AS n0
    *   FROM title_data
@@ -1610,8 +1617,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       sql.append(", n").append(i);
     }
     sql
-    .append(" FROM ").append(titleEntriesTable(pool))
-    .append(" JOIN ").append(agreementEntriesTable(pool)).append(" USING (kbTitleId)");
+        .append(" FROM ").append(agreementEntriesTable(pool))
+        .append(" LEFT JOIN ").append(packageEntriesTable(pool)).append(" USING (kbPackageId)")
+        .append(" JOIN " + titleEntriesTable(pool) + " ON")
+        .append(" title_entries.kbTitleId = agreement_entries.kbTitleId OR")
+        .append(" title_entries.kbTitleId = package_entries.kbTitleId");
     for (int i = 0; i < publicationPeriods; i++) {
       sql
       .append(" LEFT JOIN (")
