@@ -1,0 +1,102 @@
+{
+  "description": "Single row of cost report data",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Title if the item"
+    },
+    "derivedTitle": {
+      "type": "boolean",
+      "description": "Indicate whether the the resource is derived from an agreement line"
+    },
+    "printISSN": {
+      "type": "string",
+      "description": "ISSN for print instance"
+    },
+    "onlineISSN": {
+      "type": "string",
+      "description": "ISSN for online instance"
+    },
+    "orderType": {
+      "type": "string",
+      "enum": ["ONGOING", "ONTIME"],
+      "description": "Order type from agreement - defaults to ONGOING"
+    },
+    "poLineIDs" : {
+      "type": "array",
+      "description" : "PO line IDs",
+      "items" : {
+        "type": "string",
+        "description" : "PO line ID"
+      }
+    },
+    "invoiceNumbers" : {
+      "type": "array",
+      "description": "Invoice numbers",
+      "items" : {
+        "type": "string",
+        "description" : "Invoice number"
+      }
+    },
+    "fiscalDateStart" : {
+      "type": "string",
+      "description" : "Fiscal date start, YYYY-MM-DD"
+    },
+    "fiscalDateEnd" : {
+      "type": "string",
+      "description" : "Fiscal date end, YYYY-MM-DD"
+    },
+    "subscriptionDateStart" : {
+      "type": "string",
+      "description" : "Subscription date start, YYYY-MM-DD"
+    },
+    "subscriptionDateEnd" : {
+      "type": "string",
+      "description" : "Subscription date end, YYYY-MM-DD"
+    },
+    "amountEncumbered" : {
+      "type": "array",
+      "description" : "Encumbered amounts for PO lines",
+      "items" : {
+        "type": "number",
+        "description" : "Encumbered amount for PO line"
+      }
+    },
+    "amountPaid" : {
+      "description" : "Paid amount for each invoice",
+      "type": "array",
+      "items" : {
+        "type": "number",
+        "description" : "Paid amount for invoice"
+      }
+    },
+    "totalItemRequests" : {
+      "description" : "total item requests",
+      "type": "integer"
+    },
+    "uniqueItemRequests" : {
+      "description" : "unique item requests",
+      "type": "integer"
+    },
+    "costPerTotalRequest" : {
+      "type": "array",
+      "description" : "Cost per total request for invoices",
+      "items" : {
+        "type": "number",
+        "description" : "Cost per total request for invoice",
+        "nullable": true
+      }
+    },
+    "costPerUniqueRequest" : {
+      "type": "array",
+      "description" : "Cost per unique request for invoices",
+      "items" : {
+        "type": "number",
+        "description" : "Cost per unique request for invoice",
+        "nullable": true
+      }
+    }
+  },
+  "additionalProperties": false
+}
