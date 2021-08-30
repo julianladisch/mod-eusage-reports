@@ -162,6 +162,7 @@ public class EusageReportsApiTest {
   static String a1  = "10000000-0000-4000-8000-000000000000";
   static String a2  = "20000000-0000-4000-8000-000000000000";
   static String a3  = "30000000-0000-4000-8000-000000000000";
+  static String a4  = "40000000-0000-4000-8000-000000000000";
   // kbTitleId
   static String t11 = "11000000-0000-4000-8000-000000000000";
   static String t12 = "12000000-0000-4000-8000-000000000000";
@@ -181,8 +182,14 @@ public class EusageReportsApiTest {
 
   private static Future<RowSet<Row>> insertAgreement(String agreementId, String titleId, String packageId) {
     return pool.preparedQuery("INSERT INTO " + agreementEntriesTable(pool)
-        + "(id, agreementId, kbTitleId, kbPackageId) VALUES ($1, $2, $3, $4)")
-    .execute(Tuple.of(UUID.randomUUID(), agreementId, titleId, packageId));
+            + "(id, agreementId, kbTitleId, kbPackageId)"
+            + " VALUES ($1, $2, $3, $4)")
+        .execute(Tuple.of(UUID.randomUUID(), agreementId, titleId, packageId));
+  }
+
+  private static Future<RowSet<Row>> updateAgreement(String agreementId, String set) {
+    return pool.preparedQuery("UPDATE " + agreementEntriesTable(pool) + " SET " + set
+        + " WHERE agreementId = $1").execute(Tuple.of(UUID.fromString(agreementId)));
   }
 
   private static Future<RowSet<Row>> insertPackageEntry(String packageId, String packageName, String titleId) {
@@ -216,14 +223,35 @@ public class EusageReportsApiTest {
         openAccess, uniqueAccessCount, totalAccessCount));
   }
 
-  private static Future<Void> loadSampleData() {
+   private static Future<Void> loadSampleData() {
     return insertAgreement(a1, t11, null)
         .compose(x -> insertAgreement(a1, t12, null))
+        .compose(x -> updateAgreement(a1, "orderType = 'Ongoing', poLineNumber = 'p1', invoiceNumber = 'i1',"
+            + " subscriptionDateRange = '[2020-03-03, 2021-01-15]', fiscalYearRange='[2020-01-01,2021-01-01)',"
+            + " coverageDateRanges='[1998-01-01,2020-01-01]',"
+            + " encumberedCost = 100, invoicedCost = 110"
+        ))
         .compose(x -> insertAgreement(a2, t21, null))
         .compose(x -> insertAgreement(a2, t22, null))
         .compose(x -> insertAgreement(a2, t31, null))
         .compose(x -> insertAgreement(a2, t32, null))
+        .compose(x -> updateAgreement(a2, "orderType = 'One-Time', poLineNumber = 'p2', invoiceNumber = 'i2',"
+            + " subscriptionDateRange = '[2020-03-03, 2021-01-15]', fiscalYearRange='[2020-01-01,2021-01-01)',"
+            + " coverageDateRanges='[1998-01-01,2021-01-01]',"
+            + " encumberedCost = 200, invoicedCost = 210"
+        ))
         .compose(x -> insertAgreement(a3, null, p11))
+        .compose(x -> updateAgreement(a3, "orderType = 'Ongoing', poLineNumber = 'p3', invoiceNumber = 'i3',"
+            + " subscriptionDateRange = '[2020-03-03, 2021-01-15]', fiscalYearRange='[2020-01-01,2021-01-01)',"
+            + " coverageDateRanges='[1998-01-01,2021-01-01]',"
+            + " encumberedCost = 300, invoicedCost = 310"
+        ))
+        .compose(x -> insertAgreement(a4, null, p11))
+        .compose(x -> updateAgreement(a4, "orderType = 'Ongoing', poLineNumber = 'p3', invoiceNumber = 'i3',"
+            + " subscriptionDateRange = '[2020-03-03, 2021-01-15]', fiscalYearRange='[2020-01-01,2021-01-01)',"
+            + " coverageDateRanges='[1998-01-01,2021-01-01]',"
+            + " encumberedCost = 300, invoicedCost = 310"
+        ))
         .compose(x -> insertPackageEntry(p11, "Package 11", t11))
         .compose(x -> insertPackageEntry(p11, "Package 11", t12))
         .compose(x -> insertTitleEntry(te11, t11, "Title 11", "1111-1111", "1111-2222"))
@@ -249,6 +277,15 @@ public class EusageReportsApiTest {
 
   private Future<JsonObject> getUseOverTime(boolean isJournal, boolean includeOA, String agreementId, String start, String end) {
     return new EusageReportsApi().getUseOverTime(pool, isJournal, includeOA, false, agreementId, start, end);
+  }
+
+  @Test
+  public void useOverTime1(TestContext context) {
+    getUseOverTime(true, true, a1, "2020-04", "2020-05")
+        .onComplete(context.asyncAssertSuccess(json -> {
+          assertThat(json.getString("agreementId"), is(a1));
+          System.out.printf("AD: useovertime=" + json.encodePrettily());
+        }));
   }
 
   @Test
@@ -484,7 +521,7 @@ public class EusageReportsApiTest {
   }
 
   private void floorMonths(TestContext context, String date, int months, String expected) {
-    assertThat(EusageReportsApi.Periods.floorMonths(LocalDate.parse(date), months).toString(), is(expected));
+    assertThat(Periods.floorMonths(LocalDate.parse(date), months).toString(), is(expected));
     String sql = "SELECT " + pool.getSchema() + ".floor_months('" + date + "'::date, " + months + ")";
     pool.query(sql).execute().onComplete(context.asyncAssertSuccess(res -> {
       assertThat(sql, res.iterator().next().getLocalDate(0).toString(), is(expected));
@@ -591,6 +628,116 @@ public class EusageReportsApiTest {
               .put("accessCountsByPeriod", new JsonArray("[ null, null, null ]"))
               .encodePrettily()));
     }));
+  }
+
+  @Test
+  public void costPerUseWithRoutingContext1(TestContext context) {
+    RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
+    when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
+    when(routingContext.request().params().get("agreementId")).thenReturn(a1);
+    when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
+    when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
+    when(routingContext.request().params().get("includeOA")).thenReturn("true");
+    new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
+        .onComplete(context.asyncAssertSuccess(x -> {
+          ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+          verify(routingContext.response()).end(body.capture());
+          JsonObject json = new JsonObject(body.getValue());
+          System.out.println(json.encodePrettily());
+          assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(),
+              contains("2020-04", "2020-05", "2020-06", "2020-07", "2020-08"));
+          assertThat((List<?>) json.getJsonArray("totalItemCostsPerRequestsByPeriod").getList(),
+              contains(2.5, 1.62, null, null, null));
+          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
+              contains(2.75, 3.06, null, null, null));
+          assertThat((List<?>) json.getJsonArray("titleCountByPeriod").getList(),
+              contains(2, 2, 0, 0, 0));
+          assertThat(json.getJsonArray("items").size(), is(4));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getString("kbId"), is(t11));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getLong("totalItemRequests"), is(6L));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getLong("uniqueItemRequests"), is(5L));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("amountEncumbered"), is(25.0));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("amountPaid"), is(27.5));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("costPerTotalRequest"), is(4.58));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("costPerUniqueRequest"), is(5.5));
+          assertThat(json.getJsonArray("items").getJsonObject(1).getString("kbId"), is(t11));
+          assertThat(json.getJsonArray("items").getJsonObject(1).getLong("totalItemRequests"), is(12L));
+          assertThat(json.getJsonArray("items").getJsonObject(1).getLong("uniqueItemRequests"), is(4L));
+          assertThat(json.getJsonArray("items").getJsonObject(2).getString("kbId"), is(t12));
+          assertThat(json.getJsonArray("items").getJsonObject(2).getLong("totalItemRequests"), is(16L));
+          assertThat(json.getJsonArray("items").getJsonObject(2).getLong("uniqueItemRequests"), is(15L));
+          assertThat(json.getJsonArray("items").getJsonObject(3).getString("kbId"), is(t12));
+          assertThat(json.getJsonArray("items").getJsonObject(3).getLong("totalItemRequests"), is(22L));
+          assertThat(json.getJsonArray("items").getJsonObject(3).getLong("uniqueItemRequests"), is(14L));
+        }));
+  }
+
+  @Test
+  public void costPerUseWithRoutingContext2(TestContext context) {
+    RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
+    when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
+    when(routingContext.request().params().get("agreementId")).thenReturn(a2);
+    when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
+    when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
+    when(routingContext.request().params().get("includeOA")).thenReturn("true");
+    new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
+        .onComplete(context.asyncAssertSuccess(x -> {
+          ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+          verify(routingContext.response()).end(body.capture());
+          JsonObject json = new JsonObject(body.getValue());
+          System.out.println(json.encodePrettily());
+        }));
+  }
+
+  @Test
+  public void costPerUseWithRoutingContext3(TestContext context) {
+    RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
+    when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
+    when(routingContext.request().params().get("agreementId")).thenReturn(a3);
+    when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
+    when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
+    when(routingContext.request().params().get("includeOA")).thenReturn("true");
+    new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
+        .onComplete(context.asyncAssertSuccess(x -> {
+          ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+          verify(routingContext.response()).end(body.capture());
+          JsonObject json = new JsonObject(body.getValue());
+          System.out.println(json.encodePrettily());
+        }));
+  }
+
+  @Test
+  public void costPerUseWithRoutingContext4(TestContext context) {
+    RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
+    when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
+    when(routingContext.request().params().get("agreementId")).thenReturn(a4);
+    when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
+    when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
+    when(routingContext.request().params().get("includeOA")).thenReturn("true");
+    new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
+        .onComplete(context.asyncAssertSuccess(x -> {
+          ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+          verify(routingContext.response()).end(body.capture());
+          JsonObject json = new JsonObject(body.getValue());
+          System.out.println(json.encodePrettily());
+        }));
+  }
+
+  @Test
+  public void costPerUseWithRoutingContextCsv(TestContext context) {
+    RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
+    when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
+    when(routingContext.request().params().get("agreementId")).thenReturn(a1);
+    when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
+    when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
+    when(routingContext.request().params().get("includeOA")).thenReturn("true");
+    new EusageReportsApi().getCostPerUse(vertx, routingContext, true)
+        .onComplete(context.asyncAssertSuccess(x -> {
+          ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+          verify(routingContext.response()).end(body.capture());
+          String res = body.getValue();
+          assertThat(res, containsString("Agreement line,Publication Type,Print ISSN,Online ISSN,"));
+        }));
   }
 
   @Test

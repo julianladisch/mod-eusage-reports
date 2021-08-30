@@ -27,8 +27,8 @@ import io.vertx.sqlclient.SqlResult;
 import io.vertx.sqlclient.Tuple;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.text.DecimalFormat;
 import java.time.LocalDate;
-import java.time.Period;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.apache.commons.csv.CSVFormat;
@@ -58,6 +59,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   private static final Logger log = LogManager.getLogger(EusageReportsApi.class);
 
   private WebClient webClient;
+
+  static DecimalFormat costDecimalFormat = new DecimalFormat("#.00");
 
   static String titleEntriesTable(TenantPgPool pool) {
     return pool.getSchema() + ".title_entries";
@@ -799,6 +802,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
               .put("coverageDateRanges", row.getString(11))
               .put("orderType", row.getString(12))
               .put("invoiceNumber", row.getString(13))
+              .put("poLineNumber", row.getString(14))
       );
     } catch (Exception e) {
       log.error(e.getMessage(), e);
@@ -961,6 +965,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     for (int i = 0; i < poLinesAr.size(); i++) {
       UUID poLineId = UUID.fromString(poLinesAr.getJsonObject(i).getString("poLineId"));
       futures.add(lookupOrderLine(poLineId, ctx).compose(poLine -> {
+        result.put("poLineNumber", poLine.getString("poLineNumber"));
         JsonObject cost = poLine.getJsonObject("cost");
         String currency = result.getString("currency");
         String newCurrency = cost.getString("currency");
@@ -1059,16 +1064,17 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                 Number invoicedCost = poResult.getDouble("invoicedCost");
                 String subScriptionDateRange = poResult.getString("subscriptionDateRange");
                 String fiscalYearRange = poResult.getString("fiscalYear");
+                String poLineNumber = poResult.getString("poLineNumber");
                 return con.preparedQuery("INSERT INTO " + agreementEntriesTable(pool)
                     + "(id, kbTitleId, kbPackageId, type,"
                     + " agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,"
                     + " fiscalYearRange, subscriptionDateRange, coverageDateRanges, orderType,"
-                    + " invoiceNumber)"
-                    + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)")
+                    + " invoiceNumber,poLineNumber)"
+                    + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)")
                     .execute(Tuple.of(id, kbTitleId, kbPackageId, type,
                         agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,
                         fiscalYearRange, subScriptionDateRange, coverageDateRanges, orderType,
-                        invoiceNumber))
+                        invoiceNumber, poLineNumber))
                     .mapEmpty();
               })
           );
@@ -1124,100 +1130,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           ctx.response().end(new JsonObject().put("reportLinesCreated", linesCreated).encode());
           return Future.succeededFuture();
         });
-  }
-
-  static class Periods {
-    private final Period period;
-    private final int periodInMonths;
-    private final JsonArray accessCountPeriods = new JsonArray();
-    private final LocalDate startDate;
-    /** End date (exclusive): the first day after the last period. */
-    private final LocalDate endDate;
-
-    public Periods(String start, String end, String periodOfUse) {
-      if (start.length() != end.length()) {
-        throw new IllegalArgumentException(
-            "startDate and endDate must have same length: " + start + " " + end);
-      }
-      if (start.compareTo(end) > 0) {
-        throw new IllegalArgumentException("startDate=" + start + " is after endDate=" + end);
-      }
-      boolean isYear = start.length() == 4;
-      if (periodOfUse == null) {
-        periodOfUse = isYear ? "1Y" : "1M";
-      }
-      periodInMonths = getPeriodInMonths(periodOfUse);
-      period = Period.ofMonths(periodInMonths);
-      start += isYear ? "-01-01" : "-01";
-      end   += isYear ? "-01-01" : "-01";
-      startDate = floorMonths(LocalDate.parse(start), periodInMonths);
-      endDate   = floorMonths(LocalDate.parse(end), periodInMonths).plus(period);
-
-      if (Period.between(startDate, endDate).getYears() > 10) {
-        throw new IllegalArgumentException(
-            "Must no exceed 10 years: startDate=" + start + ", endDate= " + end);
-      }
-
-      LocalDate date = startDate;
-      do {
-        accessCountPeriods.add(periodLabel(date));
-        date = date.plus(period);
-      } while (date.isBefore(endDate));
-    }
-
-    /**
-     * Convert month string or year string to number of months: 6M -> 6, 2Y -> 24.
-     */
-    private static int getPeriodInMonths(String period) {
-      int months = Integer.parseUnsignedInt(period, 0, period.length() - 1, 10);
-      if (period.endsWith("Y")) {
-        months *= 12;
-      }
-      return months;
-    }
-
-    /**
-     * Start of the period date belongs to, periods are n months long. Examples:
-     * <br>Begin of quarter (3 months): floorMonths("2019-05-17", 3) = "2019-04-01".
-     * <br>Begin of decade (10 years): floorMonths("2019-05-17", 120) = "2010-01-01".
-     */
-    static LocalDate floorMonths(LocalDate date, int months) {
-      int m = ((12 * date.getYear() + date.getMonthValue() - 1) / months) * months;
-      return LocalDate.of(m / 12, m % 12 + 1, 1);
-    }
-
-    /**
-     * Label like "2021" or "2020 - 2024" or "2021-05" or "2021-04 - 2021-06".
-     */
-    public String periodLabel(LocalDate date) {
-      String startStr = date.toString();
-      if (periodInMonths == 1) {
-        return startStr.substring(0, startStr.length() - 3);
-      }
-      if (periodInMonths == 12) {
-        return startStr.substring(0, startStr.length() - 6);
-      }
-      if (periodInMonths % 12 == 0) {
-        String endStr = date.plusMonths(periodInMonths - 1).toString();
-        return startStr.substring(0, startStr.length() - 6) + " - "
-          + endStr.subSequence(0, endStr.length() - 6);
-      }
-      String endStr = date.plusMonths(periodInMonths - 1).toString();
-      return startStr.substring(0, startStr.length() - 3) + " - "
-          + endStr.subSequence(0, endStr.length() - 3);
-    }
-
-    public int size() {
-      return accessCountPeriods.size();
-    }
-
-    public void addStartDates(Tuple tuple) {
-      LocalDate date = startDate;
-      do {
-        tuple.addLocalDate(date);
-        date = date.plus(period);
-      } while (date.isBefore(endDate));
-    }
   }
 
   static void getUseTotalsCsv(JsonObject json, boolean groupByPublicationYear,
@@ -1356,7 +1268,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     Periods periods = new Periods(start, end, null);
     Tuple tuple = Tuple.of(agreementId);
     periods.addStartDates(tuple);
-    tuple.addLocalDate(periods.endDate);
+    periods.addEnd(tuple);
 
     StringBuilder sql = new StringBuilder();
     if (includeOA) {
@@ -1417,7 +1329,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       });
       return new JsonObject()
           .put("agreementId", agreementId)
-          .put("accessCountPeriods", periods.accessCountPeriods)
+          .put("accessCountPeriods", periods.getAccessCountPeriods())
           .put("totalItemRequestsTotal", LongAdder.sum(totalItemRequestsByPeriod))
           .put("totalItemRequestsByPeriod", LongAdder.longArray(totalItemRequestsByPeriod))
           .put("uniqueItemRequestsTotal", LongAdder.sum(uniqueItemRequestsByPeriod))
@@ -1597,7 +1509,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             tuple.addString(usePeriods.periodLabel(date));
             date = date.plus(usePeriods.period);
           } while (date.isBefore(usePeriods.endDate));
-          tuple.addLocalDate(usePeriods.endDate);
+          usePeriods.addEnd(tuple);
 
           System.out.println(sql);
           System.out.println(tuple.deepToString());
@@ -1758,6 +1670,256 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         .append("   AND (printISSN IS NOT NULL OR onlineISSN IS NOT NULL)");
   }
 
+  static Number formatCost(Double n) {
+    return Double.parseDouble(costDecimalFormat.format(n));
+  }
+
+  static void getCostPerUse2Csv(JsonObject json, Appendable appendable)
+      throws IOException {
+    CSVPrinter writer = new CSVPrinter(appendable, CSVFormat.EXCEL);
+    writer.print("Agreement line");
+    writer.print("Publication Type");
+    writer.print("Print ISSN");
+    writer.print("Online ISSN");
+    writer.print("ISBN");
+    writer.print("Order type");
+    writer.print("Purchase order line");
+    writer.print("Invoice number");
+    writer.print("Fiscal start");
+    writer.print("Fiscal end");
+    writer.print("Subscription start");
+    writer.print("Subscription end");
+    writer.print("Reporting period");
+    writer.print("Amount encumbered");
+    writer.print("Amount paid");
+    writer.print("Total item requests");
+    writer.print("Unique item requests");
+    writer.print("Cost per request - total");
+    writer.print("Cost per request - unique");
+    writer.println();
+  }
+
+  private static void costPerUse(StringBuilder sql, TenantPgPool pool,
+                                 boolean openAccess, int periods) {
+    sql
+        .append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,")
+        .append(" printISSN, onlineISSN, ISBN, orderType, poLineNumber, invoiceNumber,")
+        .append(" fiscalYearRange, subscriptionDateRange,")
+        .append(" encumberedCost, invoicedCost");
+
+    for (int i = 0; i < periods; i++) {
+      sql.append(", total").append(i);
+      sql.append(", unique").append(i);
+    }
+    sql
+        .append(" FROM ").append(agreementEntriesTable(pool))
+        .append(" LEFT JOIN ").append(packageEntriesTable(pool))
+        .append(" USING (kbPackageId)")
+        .append(" JOIN ").append(titleEntriesTable(pool)).append(" ON")
+        .append(" title_entries.kbTitleId = agreement_entries.kbTitleId OR")
+        .append(" title_entries.kbTitleId = package_entries.kbTitleId");
+    for (int i = 0; i < periods; i++) {
+      sql.append(" LEFT JOIN (")
+          .append(" SELECT titleEntryId")
+          .append(", sum(totalAccessCount) as total").append(i)
+          .append(", sum(uniqueAccessCount) as unique").append(i)
+          .append(" FROM ").append(titleDataTable(pool))
+          .append(" WHERE daterange($").append(2 + i).append(", $").append(2 + i + 1)
+          .append(") @> lower(usageDateRange)")
+          .append(openAccess ? " AND openAccess" : " AND NOT openAccess")
+          .append(" GROUP BY 1")
+          .append(" ) t").append(i).append(" ON t").append(i).append(".titleEntryId = ")
+          .append(titleEntriesTable(pool)).append(".id")
+          .append(" AND subscriptionDateRange @> daterange($").append(2 + i)
+          .append(", $").append(2 + i + 1).append(")")
+      ;
+
+      // TODO  .append(" AND coverageDateRanges @> t").append(i).append(".publicationDate")
+
+    }
+    sql.append(" WHERE agreementId = $1");
+  }
+
+  Future<JsonObject> costPerUse(TenantPgPool pool, boolean includeOA, String agreementId,
+                                String start, String end) {
+
+    Periods periods = new Periods(start, end, null);
+    Tuple tuple = Tuple.of(agreementId);
+    periods.addStartDates(tuple);
+    periods.addEnd(tuple);
+
+    StringBuilder sql = new StringBuilder();
+    if (includeOA) {
+      costPerUse(sql, pool, true, periods.size());
+      sql.append(" UNION ");
+    }
+    costPerUse(sql, pool, false, periods.size());
+    sql.append(" ORDER BY title");
+    log.info("AD: costPerUse SQL={}", sql.toString());
+
+    return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
+      JsonArray paidByPeriod = new JsonArray();
+      JsonArray totalRequests = new JsonArray();
+      JsonArray uniqueRequests = new JsonArray();
+      JsonArray titleCountByPeriod = new JsonArray();
+      for (int i = 0; i < periods.size(); i++) {
+        paidByPeriod.add(0.0);
+        totalRequests.add(0L);
+        uniqueRequests.add(0L);
+        titleCountByPeriod.add(0L);
+      }
+      AtomicLong totalTitles = new AtomicLong();
+      rowSet.forEach(row -> {
+        for (int i = 0; i < periods.size(); i++) {
+          Long totalAccessCount = row.getLong(12 + i * 2);
+          Long uniqueAccessCount = row.getLong(13 + i * 2);
+          log.debug("Inspecting i={} totalAccessCount={} uniqueAccessCount={}",
+              i, totalAccessCount, uniqueAccessCount);
+          if (totalAccessCount == null || uniqueAccessCount == null) {
+            continue;
+          }
+          titleCountByPeriod.set(i, titleCountByPeriod.getLong(i) + 1L);
+          totalTitles.incrementAndGet();
+        }
+      });
+      JsonArray items = new JsonArray();
+      rowSet.forEach(row -> {
+        log.info("AD: row={}", row.deepToString());
+        for (int i = 0; i < periods.size(); i++) {
+          Long totalAccessCount = row.getLong(12 + i * 2);
+          Long uniqueAccessCount = row.getLong(13 + i * 2);
+          if (totalAccessCount == null || uniqueAccessCount == null) {
+            continue;
+          }
+          JsonObject item = new JsonObject()
+              .put("kbId", row.getUUID(0))
+              .put("title", row.getString(1))
+              .put("derivedTitle", false);
+          String printIssn = row.getString(2);
+          if (printIssn != null) {
+            item.put("printISSN", printIssn);
+          }
+          String onlineIssn = row.getString(3);
+          if (onlineIssn != null) {
+            item.put("onlineISSN", onlineIssn);
+          }
+          String isbn = row.getString(4);
+          if (isbn != null) {
+            item.put("ISBN", isbn);
+          }
+          String orderType = row.getString(5);
+          item.put("orderType", orderType != null ? orderType : "Ongoing");
+          String poLineNumber = row.getString(6);
+          if (poLineNumber != null) {
+            item.put("poLineIDs", new JsonArray().add(poLineNumber));
+          }
+          String invoiceNumbers = row.getString(7);
+          if (invoiceNumbers != null) {
+            item.put("invoiceNumbers", new JsonArray().add(invoiceNumbers));
+          }
+          String fiscalYearRange = row.getString(8);
+          if (fiscalYearRange != null) {
+            DateRange dateRange = new DateRange(fiscalYearRange);
+            item.put("fiscalDateStart", dateRange.getStart());
+            item.put("fiscalDateEnd", dateRange.getEnd());
+          }
+          String subscriptionDateRange = row.getString(9);
+          if (subscriptionDateRange != null) {
+            DateRange dateRange = new DateRange(subscriptionDateRange);
+            item.put("subscriptionDateStart", dateRange.getStart());
+            item.put("subscriptionDateEnd", dateRange.getEnd());
+          }
+          Number encumberedCost = row.getNumeric(10);
+          if (encumberedCost != null) {
+            item.put("amountEncumbered", formatCost(
+                encumberedCost.doubleValue() / totalTitles.get()));
+          }
+          Number amountPaid = row.getNumeric(11);
+          if (amountPaid != null) {
+            item.put("amountPaid", formatCost(
+                amountPaid.doubleValue() / totalTitles.get()));
+          }
+          item.put("totalItemRequests", totalAccessCount);
+          item.put("uniqueItemRequests", uniqueAccessCount);
+          totalRequests.set(i, totalRequests.getLong(i) + totalAccessCount);
+          uniqueRequests.set(i, uniqueRequests.getLong(i) + uniqueAccessCount);
+
+          if (amountPaid != null) {
+            paidByPeriod.set(i, amountPaid.doubleValue());
+            if (totalAccessCount > 0) {
+              Double costPerTotalRequest = amountPaid.doubleValue()
+                  / (totalAccessCount * totalTitles.get());
+              item.put("costPerTotalRequest", formatCost(costPerTotalRequest));
+            }
+            if (uniqueAccessCount > 0) {
+              Double costPerUniqueRequest = amountPaid.doubleValue()
+                  / (uniqueAccessCount * totalTitles.get());
+              item.put("costPerUniqueRequest", formatCost(costPerUniqueRequest));
+            }
+            items.add(item);
+          }
+        }
+      });
+      JsonArray totalItemCostsPerRequestsByPeriod = new JsonArray();
+      JsonArray uniqueItemCostsPerRequestsByPeriod = new JsonArray();
+      for (int i = 0; i < periods.size(); i++) {
+        Long n = totalRequests.getLong(i);
+        long c = titleCountByPeriod.getLong(i);
+        if (n > 0) {
+          totalItemCostsPerRequestsByPeriod.add(formatCost(paidByPeriod.getDouble(i) / (n * c)));
+        } else {
+          totalItemCostsPerRequestsByPeriod.addNull();
+        }
+        n = uniqueRequests.getLong(i);
+        if (n > 0) {
+          uniqueItemCostsPerRequestsByPeriod.add(formatCost(paidByPeriod.getDouble(i) / (n * c)));
+        } else {
+          uniqueItemCostsPerRequestsByPeriod.addNull();
+        }
+      }
+      JsonObject json = new JsonObject();
+      json.put("accessCountPeriods", periods.getAccessCountPeriods());
+      json.put("totalItemCostsPerRequestsByPeriod", totalItemCostsPerRequestsByPeriod);
+      json.put("uniqueItemCostsPerRequestsByPeriod", uniqueItemCostsPerRequestsByPeriod);
+      json.put("titleCountByPeriod", titleCountByPeriod);
+      json.put("items", items);
+      return json;
+    });
+  }
+
+  Future<String> getCostPerUse(TenantPgPool pool, boolean includeOA, String agreementId,
+                               String start, String end, boolean csv) {
+    return costPerUse(pool, includeOA, agreementId, start, end)
+        .compose(json -> {
+          if (!csv) {
+            return Future.succeededFuture(json.encodePrettily());
+          }
+          try {
+            StringWriter stringWriter = new StringWriter();
+            getCostPerUse2Csv(json, stringWriter);
+            return Future.succeededFuture(stringWriter.toString());
+          } catch (IOException e) {
+            return Future.failedFuture(e);
+          }
+        });
+  }
+
+  Future<Void> getCostPerUse(Vertx vertx, RoutingContext ctx, boolean csv) {
+    TenantPgPool pool = TenantPgPool.pool(vertx, TenantUtil.tenant(ctx));
+    boolean includeOA = "true".equalsIgnoreCase(ctx.request().params().get("includeOA"));
+    String agreementId = ctx.request().params().get("agreementId");
+    String start = ctx.request().params().get("startDate");
+    String end = ctx.request().params().get("endDate");
+
+    return getCostPerUse(pool, includeOA, agreementId, start, end, csv)
+        .map(res -> {
+          ctx.response().setStatusCode(200);
+          ctx.response().putHeader("Content-Type", csv ? "text/csv" : "application/json");
+          ctx.response().end(res);
+          return null;
+        });
+  }
+
   private void add(RouterBuilder routerBuilder,
       String operationId, Function<RoutingContext, Future<Void>> function) {
 
@@ -1790,6 +1952,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           add(routerBuilder, "getReqsByDateOfUseCsv", ctx -> getReqsByDateOfUse(vertx, ctx, true));
           add(routerBuilder, "getReqsByPubYear", ctx -> getReqsByPubYear(vertx, ctx, false));
           add(routerBuilder, "getReqsByPubYearCsv", ctx -> getReqsByPubYear(vertx, ctx, true));
+          add(routerBuilder, "getCostPerUse", ctx -> getCostPerUse(vertx, ctx, false));
+          add(routerBuilder, "getCostPerUseCsv", ctx -> getCostPerUse(vertx, ctx, true));
           return routerBuilder.createRouter();
         });
   }
@@ -1856,7 +2020,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + "subscriptionDateRange daterange, "
             + "coverageDateRanges daterange,"
             + "orderType text,"
-            + "invoiceNumber text"
+            + "invoiceNumber text,"
+            + "poLineNumber text"
             + ")",
         "CREATE INDEX IF NOT EXISTS agreement_entries_agreementId ON "
             + agreementEntriesTable(pool) + " USING btree(agreementId)",
