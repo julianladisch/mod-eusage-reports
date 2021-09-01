@@ -227,7 +227,7 @@ public class EusageReportsApiTest {
     return insertAgreement(a1, t11, null)
         .compose(x -> insertAgreement(a1, t12, null))
         .compose(x -> updateAgreement(a1, "orderType = 'Ongoing', poLineNumber = 'p1', invoiceNumber = 'i1',"
-            + " subscriptionDateRange = '[2020-03-03, 2021-01-15]', fiscalYearRange='[2020-01-01,2021-01-01)',"
+            + " fiscalYearRange='[2020-01-01,2021-01-01)',"
             + " coverageDateRanges='[1998-01-01,2020-01-01]',"
             + " encumberedCost = 100, invoicedCost = 110"
         ))
@@ -236,7 +236,7 @@ public class EusageReportsApiTest {
         .compose(x -> insertAgreement(a2, t31, null))
         .compose(x -> insertAgreement(a2, t32, null))
         .compose(x -> updateAgreement(a2, "orderType = 'One-Time', poLineNumber = 'p2', invoiceNumber = 'i2',"
-            + " subscriptionDateRange = '[2020-03-03, 2021-01-15]', fiscalYearRange='[2020-01-01,2021-01-01)',"
+            + " fiscalYearRange='[2020-01-01,2021-01-01)',"
             + " coverageDateRanges='[1998-01-01,2021-01-01]',"
             + " encumberedCost = 200, invoicedCost = 210"
         ))
@@ -248,7 +248,7 @@ public class EusageReportsApiTest {
         ))
         .compose(x -> insertAgreement(a4, null, p11))
         .compose(x -> updateAgreement(a4, "orderType = 'Ongoing', poLineNumber = 'p3', invoiceNumber = 'i3',"
-            + " subscriptionDateRange = '[2020-03-03, 2021-01-15]', fiscalYearRange='[2020-01-01,2021-01-01)',"
+            + " subscriptionDateRange = '[2020-05-01, 2021-01-01]', fiscalYearRange='[2020-01-01,2021-01-01)',"
             + " coverageDateRanges='[1998-01-01,2021-01-01]',"
             + " encumberedCost = 300, invoicedCost = 310"
         ))
@@ -264,6 +264,7 @@ public class EusageReportsApiTest {
         .compose(x -> insertTitleData(te11, "2020-04-01", "2020-04-15", 1999, false, 2, 3))
         .compose(x -> insertTitleData(te11, "2020-04-15", "2020-05-01", 2000, false, 3, 3))
         .compose(x -> insertTitleData(te11, "2020-05-01", "2020-06-01", 2000, false, 4, 12))
+        .compose(x -> insertTitleData(te11, "2020-06-01", "2020-07-01", 2000, false, 9, 29))
         .compose(x -> insertTitleData(te12, "2020-03-01", "2020-04-01", 2010, false, 11, 12))
         .compose(x -> insertTitleData(te12, "2020-04-01", "2020-05-01", 2010, false, 15, 16))
         .compose(x -> insertTitleData(te12, "2020-05-01", "2020-06-01", 2010, false, 14, 22))
@@ -567,10 +568,10 @@ public class EusageReportsApiTest {
           ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
           verify(routingContext.response()).end(body.capture());
           JsonObject json = new JsonObject(body.getValue());
-          assertThat(json.getLong("totalItemRequestsTotal"), is(70L));
-          assertThat(json.getLong("uniqueItemRequestsTotal"), is(50L));
-          assertThat(json.getJsonArray("totalItemRequestsByPeriod"), contains(5, 15, 50));
-          assertThat(json.getJsonArray("uniqueItemRequestsByPeriod"), contains(3, 7, 40));
+          assertThat(json.getLong("totalItemRequestsTotal"), is(99L));
+          assertThat(json.getLong("uniqueItemRequestsTotal"), is(59L));
+          assertThat(json.getJsonArray("totalItemRequestsByPeriod"), contains(5, 44, 50));
+          assertThat(json.getJsonArray("uniqueItemRequestsByPeriod"), contains(3, 16, 40));
         }));
   }
 
@@ -597,11 +598,11 @@ public class EusageReportsApiTest {
     getReqsByPubPeriod(true, a1, "2020-04", "2020-08", "6M")
     .onComplete(context.asyncAssertSuccess(json -> {
       System.out.println(json.encodePrettily());
-      assertThat(json.getInteger("totalItemRequestsTotal"), is(70));
-      assertThat(json.getInteger("uniqueItemRequestsTotal"), is(50));
+      assertThat(json.getInteger("totalItemRequestsTotal"), is(99));
+      assertThat(json.getInteger("uniqueItemRequestsTotal"), is(59));
       assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(), contains("1999", "2000", "2010"));
-      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining(5L, 15L, 50L)));
-      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining(3L, 7L, 40L)));
+      assertThat((Long []) json.getValue("totalItemRequestsByPeriod"), is(arrayContaining(5L, 44L, 50L)));
+      assertThat((Long []) json.getValue("uniqueItemRequestsByPeriod"), is(arrayContaining(3L, 16L, 40L)));
       assertThat(json.getJsonArray("items").size(), is(16));
       assertThat(json.getJsonArray("items").getJsonObject(0).encodePrettily(),
           is(new JsonObject()
@@ -612,8 +613,8 @@ public class EusageReportsApiTest {
               .put("periodOfUse", "2020-01 - 2020-06")
               .put("accessType", "Controlled")
               .put("metricType", "Total_Item_Requests")
-              .put("accessCountTotal", 20)
-              .put("accessCountsByPeriod", new JsonArray("[ 5, 15, null ]"))
+              .put("accessCountTotal", 49)
+              .put("accessCountsByPeriod", new JsonArray("[ 5, 44, null ]"))
               .encodePrettily()));
       assertThat(json.getJsonArray("items").getJsonObject(2).encodePrettily(),
           is(new JsonObject()
@@ -646,29 +647,32 @@ public class EusageReportsApiTest {
           System.out.println(json.encodePrettily());
           assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(),
               contains("2020-04", "2020-05", "2020-06", "2020-07", "2020-08"));
-          assertThat((List<?>) json.getJsonArray("totalItemCostsPerRequestsByPeriod").getList(),
-              contains(2.5, 1.62, null, null, null));
-          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
-              contains(2.75, 3.06, null, null, null));
           assertThat((List<?>) json.getJsonArray("titleCountByPeriod").getList(),
-              contains(2, 2, 0, 0, 0));
-          assertThat(json.getJsonArray("items").size(), is(4));
+              contains(2, 2, 1, 0, 0));
+          assertThat((List<?>) json.getJsonArray("totalItemCostsPerRequestsByPeriod").getList(),
+              contains(2.0, 1.29, 0.76, null, null));
+          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
+              contains(2.2, 2.44, 2.44, null, null));
+          assertThat(json.getJsonArray("items").size(), is(5));
           assertThat(json.getJsonArray("items").getJsonObject(0).getString("kbId"), is(t11));
           assertThat(json.getJsonArray("items").getJsonObject(0).getLong("totalItemRequests"), is(6L));
           assertThat(json.getJsonArray("items").getJsonObject(0).getLong("uniqueItemRequests"), is(5L));
-          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("amountEncumbered"), is(25.0));
-          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("amountPaid"), is(27.5));
-          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("costPerTotalRequest"), is(4.58));
-          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("costPerUniqueRequest"), is(5.5));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("amountEncumbered"), is(20.0));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("amountPaid"), is(22.0));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("costPerTotalRequest"), is(3.67));
+          assertThat(json.getJsonArray("items").getJsonObject(0).getDouble("costPerUniqueRequest"), is(4.4));
           assertThat(json.getJsonArray("items").getJsonObject(1).getString("kbId"), is(t11));
           assertThat(json.getJsonArray("items").getJsonObject(1).getLong("totalItemRequests"), is(12L));
           assertThat(json.getJsonArray("items").getJsonObject(1).getLong("uniqueItemRequests"), is(4L));
-          assertThat(json.getJsonArray("items").getJsonObject(2).getString("kbId"), is(t12));
-          assertThat(json.getJsonArray("items").getJsonObject(2).getLong("totalItemRequests"), is(16L));
-          assertThat(json.getJsonArray("items").getJsonObject(2).getLong("uniqueItemRequests"), is(15L));
+          assertThat(json.getJsonArray("items").getJsonObject(2).getString("kbId"), is(t11));
+          assertThat(json.getJsonArray("items").getJsonObject(2).getLong("totalItemRequests"), is(29L));
+          assertThat(json.getJsonArray("items").getJsonObject(2).getLong("uniqueItemRequests"), is(9L));
           assertThat(json.getJsonArray("items").getJsonObject(3).getString("kbId"), is(t12));
-          assertThat(json.getJsonArray("items").getJsonObject(3).getLong("totalItemRequests"), is(22L));
-          assertThat(json.getJsonArray("items").getJsonObject(3).getLong("uniqueItemRequests"), is(14L));
+          assertThat(json.getJsonArray("items").getJsonObject(3).getLong("totalItemRequests"), is(16L));
+          assertThat(json.getJsonArray("items").getJsonObject(3).getLong("uniqueItemRequests"), is(15L));
+          assertThat(json.getJsonArray("items").getJsonObject(4).getString("kbId"), is(t12));
+          assertThat(json.getJsonArray("items").getJsonObject(4).getLong("totalItemRequests"), is(22L));
+          assertThat(json.getJsonArray("items").getJsonObject(4).getLong("uniqueItemRequests"), is(14L));
         }));
   }
 
@@ -686,6 +690,39 @@ public class EusageReportsApiTest {
           verify(routingContext.response()).end(body.capture());
           JsonObject json = new JsonObject(body.getValue());
           System.out.println(json.encodePrettily());
+          assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(),
+              contains("2020-04", "2020-05", "2020-06", "2020-07", "2020-08"));
+          assertThat((List<?>) json.getJsonArray("titleCountByPeriod").getList(),
+              contains(0, 2, 2, 0, 0));
+          assertThat((List<?>) json.getJsonArray("totalItemCostsPerRequestsByPeriod").getList(),
+              contains(null, 1.31, 26.25, null, null));
+          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
+              contains(null, 2.62, 52.5, null, null));
+        }));
+  }
+
+  @Test
+  public void costPerUseWithRoutingContext2NoOA(TestContext context) {
+    RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
+    when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
+    when(routingContext.request().params().get("agreementId")).thenReturn(a2);
+    when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
+    when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
+    when(routingContext.request().params().get("includeOA")).thenReturn("false");
+    new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
+        .onComplete(context.asyncAssertSuccess(x -> {
+          ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+          verify(routingContext.response()).end(body.capture());
+          JsonObject json = new JsonObject(body.getValue());
+          System.out.println(json.encodePrettily());
+          assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(),
+              contains("2020-04", "2020-05", "2020-06", "2020-07", "2020-08"));
+          assertThat((List<?>) json.getJsonArray("titleCountByPeriod").getList(),
+              contains(0, 2, 0, 0, 0));
+          assertThat((List<?>) json.getJsonArray("totalItemCostsPerRequestsByPeriod").getList(),
+              contains(null, 2.62, null, null, null));
+          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
+              contains(null, 5.25, null, null, null));
         }));
   }
 
@@ -695,7 +732,7 @@ public class EusageReportsApiTest {
     when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
     when(routingContext.request().params().get("agreementId")).thenReturn(a3);
     when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
-    when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
+    when(routingContext.request().params().get("endDate")).thenReturn("2020-06");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
     new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
         .onComplete(context.asyncAssertSuccess(x -> {
@@ -703,6 +740,14 @@ public class EusageReportsApiTest {
           verify(routingContext.response()).end(body.capture());
           JsonObject json = new JsonObject(body.getValue());
           System.out.println(json.encodePrettily());
+          assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(),
+              contains("2020-04", "2020-05", "2020-06"));
+          assertThat((List<?>) json.getJsonArray("titleCountByPeriod").getList(),
+              contains(2, 2, 1));
+          assertThat((List<?>) json.getJsonArray("totalItemCostsPerRequestsByPeriod").getList(),
+              contains(5.64, 3.65, 2.14));
+          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
+              contains(6.2, 6.89, 6.89));
         }));
   }
 
@@ -712,7 +757,7 @@ public class EusageReportsApiTest {
     when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
     when(routingContext.request().params().get("agreementId")).thenReturn(a4);
     when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
-    when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
+    when(routingContext.request().params().get("endDate")).thenReturn("2020-07");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
     new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
         .onComplete(context.asyncAssertSuccess(x -> {
@@ -720,6 +765,14 @@ public class EusageReportsApiTest {
           verify(routingContext.response()).end(body.capture());
           JsonObject json = new JsonObject(body.getValue());
           System.out.println(json.encodePrettily());
+          assertThat((List<?>) json.getJsonArray("accessCountPeriods").getList(),
+              contains("2020-04", "2020-05", "2020-06", "2020-07"));
+          assertThat((List<?>) json.getJsonArray("titleCountByPeriod").getList(),
+              contains(0, 2, 1, 0));
+          assertThat((List<?>) json.getJsonArray("totalItemCostsPerRequestsByPeriod").getList(),
+              contains(null, 6.08, 3.56, null));
+          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
+              contains(null, 11.48, 11.48, null));
         }));
   }
 

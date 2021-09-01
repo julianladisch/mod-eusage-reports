@@ -1700,7 +1700,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   private static void costPerUse(StringBuilder sql, TenantPgPool pool,
-                                 boolean openAccess, int periods) {
+                                 boolean includeOA, int periods) {
     sql
         .append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,")
         .append(" printISSN, onlineISSN, ISBN, orderType, poLineNumber, invoiceNumber,")
@@ -1726,12 +1726,13 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           .append(" FROM ").append(titleDataTable(pool))
           .append(" WHERE daterange($").append(2 + i).append(", $").append(2 + i + 1)
           .append(") @> lower(usageDateRange)")
-          .append(openAccess ? " AND openAccess" : " AND NOT openAccess")
+          .append(includeOA ? "" : " AND NOT openAccess")
           .append(" GROUP BY 1")
           .append(" ) t").append(i).append(" ON t").append(i).append(".titleEntryId = ")
           .append(titleEntriesTable(pool)).append(".id")
-          .append(" AND subscriptionDateRange @> daterange($").append(2 + i)
-          .append(", $").append(2 + i + 1).append(")")
+          .append(" AND (subscriptionDateRange IS NULL")
+          .append(" OR subscriptionDateRange @> daterange($")
+          .append(2 + i).append(", $").append(2 + i + 1).append("))")
       ;
 
       // TODO  .append(" AND coverageDateRanges @> t").append(i).append(".publicationDate")
@@ -1749,11 +1750,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     periods.addEnd(tuple);
 
     StringBuilder sql = new StringBuilder();
-    if (includeOA) {
-      costPerUse(sql, pool, true, periods.size());
-      sql.append(" UNION ");
-    }
-    costPerUse(sql, pool, false, periods.size());
+    costPerUse(sql, pool, includeOA, periods.size());
     sql.append(" ORDER BY title");
     log.info("AD: costPerUse SQL={}", sql.toString());
 
@@ -1768,7 +1765,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         uniqueRequests.add(0L);
         titleCountByPeriod.add(0L);
       }
-      AtomicLong totalTitles = new AtomicLong();
       rowSet.forEach(row -> {
         for (int i = 0; i < periods.size(); i++) {
           Long totalAccessCount = row.getLong(12 + i * 2);
@@ -1779,9 +1775,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             continue;
           }
           titleCountByPeriod.set(i, titleCountByPeriod.getLong(i) + 1L);
-          totalTitles.incrementAndGet();
         }
       });
+      AtomicLong totalTitles = new AtomicLong();
+      for (int i = 0; i < periods.size(); i++) {
+        totalTitles.addAndGet(titleCountByPeriod.getLong(i));
+      }
       JsonArray items = new JsonArray();
       rowSet.forEach(row -> {
         log.info("AD: row={}", row.deepToString());
@@ -1863,16 +1862,22 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       JsonArray totalItemCostsPerRequestsByPeriod = new JsonArray();
       JsonArray uniqueItemCostsPerRequestsByPeriod = new JsonArray();
       for (int i = 0; i < periods.size(); i++) {
+        Long d = titleCountByPeriod.getLong(i);
+        Double p = paidByPeriod.getDouble(i);
         Long n = totalRequests.getLong(i);
-        long c = titleCountByPeriod.getLong(i);
+        long c = totalTitles.get();
         if (n > 0) {
-          totalItemCostsPerRequestsByPeriod.add(formatCost(paidByPeriod.getDouble(i) / (n * c)));
+          log.info("totalItemCostsPerRequestsByPerid {} {}*{}/({}*{})",
+              i, d, p, n, c);
+          totalItemCostsPerRequestsByPeriod.add(formatCost(d * p / (n * c)));
         } else {
           totalItemCostsPerRequestsByPeriod.addNull();
         }
         n = uniqueRequests.getLong(i);
         if (n > 0) {
-          uniqueItemCostsPerRequestsByPeriod.add(formatCost(paidByPeriod.getDouble(i) / (n * c)));
+          log.info("uniqueItemCostsPerRequestsByPerid {} {}*{}/({}*{})",
+              i, d, paidByPeriod.getDouble(i), n, c);
+          uniqueItemCostsPerRequestsByPeriod.add(formatCost(d * p / (n * c)));
         } else {
           uniqueItemCostsPerRequestsByPeriod.addNull();
         }
