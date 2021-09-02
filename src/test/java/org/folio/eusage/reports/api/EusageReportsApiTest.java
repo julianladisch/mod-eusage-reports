@@ -94,12 +94,15 @@ public class EusageReportsApiTest {
 
   private Future<String> getUseOverTime(String format, String startDate, String endDate, boolean csv) {
     RoutingContext ctx = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
+    if (csv) {
+      when(ctx.request().params().get("csv")).thenReturn("true");
+    }
     when(ctx.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
     when(ctx.request().params().get("format")).thenReturn(format);
     when(ctx.request().params().get("agreementId")).thenReturn(UUID.randomUUID().toString());
     when(ctx.request().params().get("startDate")).thenReturn(startDate);
     when(ctx.request().params().get("endDate")).thenReturn(endDate);
-    return new EusageReportsApi().getUseOverTime(vertx, ctx, csv)
+    return new EusageReportsApi().getUseOverTime(vertx, ctx)
     .map(x -> {
       ArgumentCaptor<String> argument = ArgumentCaptor.forClass(String.class);
       verify(ctx.response()).end(argument.capture());
@@ -478,7 +481,7 @@ public class EusageReportsApiTest {
     when(routingContext.request().params().get("startDate")).thenReturn("2020-05");
     when(routingContext.request().params().get("endDate")).thenReturn("2020-06");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
-    new EusageReportsApi().getReqsByDateOfUse(vertx, routingContext, false)
+    new EusageReportsApi().getReqsByDateOfUse(vertx, routingContext)
     .onComplete(context.asyncAssertSuccess(x -> {
       ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
       verify(routingContext.response()).end(body.capture());
@@ -507,10 +510,11 @@ public class EusageReportsApiTest {
     RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
     when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
     when(routingContext.request().params().get("agreementId")).thenReturn(a2);
+    when(routingContext.request().params().get("csv")).thenReturn("true");
     when(routingContext.request().params().get("startDate")).thenReturn("2020-05");
     when(routingContext.request().params().get("endDate")).thenReturn("2020-06");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
-    new EusageReportsApi().getReqsByDateOfUse(vertx, routingContext, true)
+    new EusageReportsApi().getReqsByDateOfUse(vertx, routingContext)
         .onComplete(context.asyncAssertSuccess(x -> {
           ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
           verify(routingContext.response()).end(body.capture());
@@ -563,7 +567,7 @@ public class EusageReportsApiTest {
     when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
     when(routingContext.request().params().get("periodOfUse")).thenReturn("6M");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
-    new EusageReportsApi().getReqsByPubYear(vertx, routingContext, false)
+    new EusageReportsApi().getReqsByPubYear(vertx, routingContext)
         .onComplete(context.asyncAssertSuccess(x -> {
           ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
           verify(routingContext.response()).end(body.capture());
@@ -580,11 +584,12 @@ public class EusageReportsApiTest {
     RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
     when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
     when(routingContext.request().params().get("agreementId")).thenReturn(a1);
+    when(routingContext.request().params().get("csv")).thenReturn("true");
     when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
     when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
     when(routingContext.request().params().get("periodOfUse")).thenReturn("6M");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
-    new EusageReportsApi().getReqsByPubYear(vertx, routingContext, true)
+    new EusageReportsApi().getReqsByPubYear(vertx, routingContext)
         .onComplete(context.asyncAssertSuccess(x -> {
           ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
           verify(routingContext.response()).end(body.capture());
@@ -639,7 +644,7 @@ public class EusageReportsApiTest {
     when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
     when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
-    new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
+    new EusageReportsApi().getCostPerUse(vertx, routingContext)
         .onComplete(context.asyncAssertSuccess(x -> {
           ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
           verify(routingContext.response()).end(body.capture());
@@ -684,7 +689,7 @@ public class EusageReportsApiTest {
     when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
     when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
-    new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
+    new EusageReportsApi().getCostPerUse(vertx, routingContext)
         .onComplete(context.asyncAssertSuccess(x -> {
           ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
           verify(routingContext.response()).end(body.capture());
@@ -709,7 +714,7 @@ public class EusageReportsApiTest {
     when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
     when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
     when(routingContext.request().params().get("includeOA")).thenReturn("false");
-    new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
+    new EusageReportsApi().getCostPerUse(vertx, routingContext)
         .onComplete(context.asyncAssertSuccess(x -> {
           ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
           verify(routingContext.response()).end(body.capture());
@@ -734,7 +739,7 @@ public class EusageReportsApiTest {
     when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
     when(routingContext.request().params().get("endDate")).thenReturn("2020-06");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
-    new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
+    new EusageReportsApi().getCostPerUse(vertx, routingContext)
         .onComplete(context.asyncAssertSuccess(x -> {
           ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
           verify(routingContext.response()).end(body.capture());
@@ -759,7 +764,7 @@ public class EusageReportsApiTest {
     when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
     when(routingContext.request().params().get("endDate")).thenReturn("2020-07");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
-    new EusageReportsApi().getCostPerUse(vertx, routingContext, false)
+    new EusageReportsApi().getCostPerUse(vertx, routingContext)
         .onComplete(context.asyncAssertSuccess(x -> {
           ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
           verify(routingContext.response()).end(body.capture());
@@ -781,10 +786,11 @@ public class EusageReportsApiTest {
     RoutingContext routingContext = mock(RoutingContext.class, RETURNS_DEEP_STUBS);
     when(routingContext.request().getHeader("X-Okapi-Tenant")).thenReturn(tenant);
     when(routingContext.request().params().get("agreementId")).thenReturn(a1);
+    when(routingContext.request().params().get("csv")).thenReturn("true");
     when(routingContext.request().params().get("startDate")).thenReturn("2020-04");
     when(routingContext.request().params().get("endDate")).thenReturn("2020-08");
     when(routingContext.request().params().get("includeOA")).thenReturn("true");
-    new EusageReportsApi().getCostPerUse(vertx, routingContext, true)
+    new EusageReportsApi().getCostPerUse(vertx, routingContext)
         .onComplete(context.asyncAssertSuccess(x -> {
           ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
           verify(routingContext.response()).end(body.capture());
