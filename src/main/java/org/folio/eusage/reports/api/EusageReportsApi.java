@@ -1824,10 +1824,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   private static void costPerUse(StringBuilder sql, TenantPgPool pool,
-                                 Boolean isJournal,
-                                 boolean includeOA, int periods) {
+                                 Boolean isJournal, boolean includeOA, int periods) {
     sql
-        .append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,")
+        .append("SELECT DISTINCT ON (kbId) title_entries.kbTitleId AS kbId, kbTitleName AS title,")
         .append(" printISSN, onlineISSN, ISBN, orderType, poLineNumber, invoiceNumber,")
         .append(" fiscalYearRange, subscriptionDateRange,")
         .append(" encumberedCost, invoicedCost");
@@ -1861,7 +1860,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       ;
 
       // TODO  .append(" AND coverageDateRanges @> t").append(i).append(".publicationDate")
-
     }
     sql.append(" WHERE agreementId = $1").append(limitJournal(isJournal));
   }
@@ -1877,7 +1875,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
     StringBuilder sql = new StringBuilder();
     costPerUse(sql, pool, isJournal, includeOA, periods.size());
-    sql.append(" ORDER BY title");
+    sql.append(" ORDER BY kbId");
     log.debug("costPerUse SQL={}", sql.toString());
 
     return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
