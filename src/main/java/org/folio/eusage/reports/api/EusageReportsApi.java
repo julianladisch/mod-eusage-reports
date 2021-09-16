@@ -81,6 +81,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     return pool.getSchema() + ".agreement_entries";
   }
 
+  static String statusTable(TenantPgPool pool) {
+    return pool.getSchema() + ".status";
+  }
+
   static void failHandler(RoutingContext ctx) {
     Throwable t = ctx.failure();
     // both semantic errors and syntax errors are from same pile ... Choosing 400 over 422.
@@ -2044,6 +2048,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + ")",
         "CREATE INDEX IF NOT EXISTS agreement_entries_agreementId ON "
             + agreementEntriesTable(pool) + " USING btree(agreementId)",
+        "CREATE TABLE IF NOT EXISTS " + statusTable(pool) + " ( "
+            + "type text, "
+            + "id UUID, "
+            + "lastUpdated date, "
+            + "active boolean "
+            + ")",
         "CREATE OR REPLACE FUNCTION " + pool.getSchema() + ".floor_months(date, integer)"
             + " RETURNS date AS $$\n"
             + "-- floor_months(date, n) returns the start of the period date belongs to,\n"
