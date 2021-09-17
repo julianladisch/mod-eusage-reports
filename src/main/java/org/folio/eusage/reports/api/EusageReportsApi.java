@@ -1143,10 +1143,26 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                     future = future.compose(v ->
                         populateAgreementLine(pool, con, agreementLine, agreementId, ctx));
                   }
+                  future = future.compose(v -> populateStatus(pool, con,
+                      agreementId, "agreement", false));
                   return future.compose(x -> tx.commit()).map(items.size());
                 });
           });
     }).eventually(x -> con.close()));
+  }
+
+  Future<Void> populateStatus(TenantPgPool pool, SqlConnection con,
+                              UUID agreementId, String type, boolean active) {
+    log.info("populateStatus begin");
+    return con.preparedQuery("DELETE FROM " + statusTable(pool)
+            + " WHERE id = $1")
+        .execute(Tuple.of(agreementId)).compose(x ->
+            con.preparedQuery("INSERT INTO " + statusTable(pool)
+                    + "(type, id, lastUpdated, active) VALUES ($1, $2, $3, $4)")
+                .execute(Tuple.of(type, agreementId, LocalDate.now(), active))
+                .onComplete(l -> log.info("populateStatus end"))
+                .mapEmpty()
+        );
   }
 
   Future<Void> postFromAgreement(Vertx vertx, RoutingContext ctx) {
@@ -1947,6 +1963,13 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
+  Future<Void> getReportStatus(Vertx vertx, RoutingContext ctx) {
+    ctx.response().setStatusCode(200);
+    ctx.response().putHeader("Content-Type", "application/json");
+    ctx.response().end("{}");
+    return Future.succeededFuture();
+  }
+
   private void add(RouterBuilder routerBuilder,
       String operationId, Function<RoutingContext, Future<Void>> function) {
 
@@ -1977,6 +2000,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           add(routerBuilder, "getReqsByDateOfUse", ctx -> getReqsByDateOfUse(vertx, ctx));
           add(routerBuilder, "getReqsByPubYear", ctx -> getReqsByPubYear(vertx, ctx));
           add(routerBuilder, "getCostPerUse", ctx -> getCostPerUse(vertx, ctx));
+          add(routerBuilder, "getReportStatus", ctx -> getReportStatus(vertx, ctx));
           return routerBuilder.createRouter();
         });
   }

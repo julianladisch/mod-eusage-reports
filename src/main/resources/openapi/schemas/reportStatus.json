@@ -1,0 +1,19 @@
+{
+  "description": "report status",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "report data identifier",
+      "format": "uuid"
+    },
+    "lastUpdated": {
+      "type": "string",
+      "description": "date of last update"
+    }
+  },
+  "additionalProperties": false,
+  "required": [
+    "id"
+  ]
+}
