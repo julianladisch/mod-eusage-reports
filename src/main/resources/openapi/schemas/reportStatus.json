@@ -10,6 +10,10 @@
     "lastUpdated": {
       "type": "string",
       "description": "date of last update"
+    },
+    "active": {
+      "type": "boolean",
+      "description": "whether being updated at the moment"
     }
   },
   "additionalProperties": false,
