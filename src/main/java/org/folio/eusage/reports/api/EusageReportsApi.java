@@ -337,10 +337,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       return Future.succeededFuture();
     }
     // some titles do not have hyphen in identifier, so try that as well
-    return ermTitleLookup(ctx, identifier, type).compose(x -> x != null
-        ? Future.succeededFuture(x)
-        : ermTitleLookup(ctx, identifier.replace("-", ""), type)
-    );
+    String identifierNoHyphen = identifier.replace("-", "");
+    return ermTitleLookup(ctx, identifier, type)
+        .compose(x -> x != null || identifierNoHyphen.equals(identifier)
+            ? Future.succeededFuture(x)
+            : ermTitleLookup(ctx, identifierNoHyphen, type)
+        );
   }
 
   Future<Tuple> ermTitleLookup(RoutingContext ctx, String identifier, String type) {
