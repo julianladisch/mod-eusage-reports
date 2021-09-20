@@ -1876,6 +1876,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + ")",
         "CREATE INDEX IF NOT EXISTS title_entries_kbTitleId ON "
             + titleEntriesTable(pool) + " USING btree(kbTitleId)",
+        "CREATE INDEX IF NOT EXISTS title_entries_counterReportTitle ON "
+            + titleEntriesTable(pool) + " USING btree(counterReportTitle)",
         "CREATE TABLE IF NOT EXISTS " + packageEntriesTable(pool) + " ( "
             + "kbPackageId UUID, "
             + "kbPackageName text, "
