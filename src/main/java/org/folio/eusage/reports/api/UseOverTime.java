@@ -14,11 +14,50 @@ import java.util.TreeSet;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-public class ReqsByDateOfUse {
-  private static final Logger log = LogManager.getLogger(ReqsByDateOfUse.class);
+public class UseOverTime {
+  private static final Logger log = LogManager.getLogger(UseOverTime.class);
 
-  static JsonObject titlesToJsonObject(RowSet<Row> rowSet, String agreementId,
-      Periods usePeriods, int pubPeriodsInMonths) {
+  static JsonObject createTotalItem(Row row, String accessType, Long totalAccessCount,
+      JsonArray accessCountsByPeriods, int periodSize) {
+    return createItem(row, accessType, "Total_Item_Requests",
+        totalAccessCount, accessCountsByPeriods, periodSize);
+  }
+
+  static JsonObject createUniqueItem(Row row, String accessType, Long totalAccessCount,
+      JsonArray accessCountsByPeriods, int periodSize) {
+    return createItem(row, accessType, "Unique_Item_Requests",
+        totalAccessCount, accessCountsByPeriods, periodSize);
+  }
+
+  private static JsonObject createItem(Row row, String accessType, String metricType,
+      Long totalAccessCount, JsonArray accessCountsByPeriods, int periodSize) {
+
+    for (int i = 0; i < periodSize; i++) {
+      accessCountsByPeriods.add(0L);
+    }
+    JsonObject o = new JsonObject()
+        .put("kbId", row.getUUID("kbid"))
+        .put("title", row.getString("title"));
+    String v = row.getString("printissn");
+    if (v != null) {
+      o.put("printISSN", v);
+    }
+    v = row.getString("onlineissn");
+    if (v != null) {
+      o.put("onlineISSN", v);
+    }
+    v = row.getString("isbn");
+    if (v != null) {
+      o.put("ISBN", v);
+    }
+    o.put("accessType", accessType)
+        .put("metricType", metricType)
+        .put("accessCountTotal", totalAccessCount)
+        .put("accessCountsByPeriod", accessCountsByPeriods);
+    return o;
+  }
+
+  static JsonObject titlesToJsonObject(RowSet<Row> rowSet, String agreementId, Periods usePeriods) {
 
     List<Long> totalItemRequestsByPeriod = new ArrayList<>();
     List<Long> uniqueItemRequestsByPeriod = new ArrayList<>();
@@ -26,14 +65,10 @@ public class ReqsByDateOfUse {
     Map<String,JsonObject> uniqueItems = new HashMap<>();
     Set<String> dup = new TreeSet<>();
 
-    JsonArray totalRequestsPublicationYearsByPeriod = new JsonArray();
-    JsonArray uniqueRequestsPublicationYearsByPeriod = new JsonArray();
     JsonArray items = new JsonArray();
     for (int i = 0; i < usePeriods.size(); i++) {
       totalItemRequestsByPeriod.add(0L);
       uniqueItemRequestsByPeriod.add(0L);
-      totalRequestsPublicationYearsByPeriod.add(new JsonObject());
-      uniqueRequestsPublicationYearsByPeriod.add(new JsonObject());
     }
     rowSet.forEach(row -> {
       String usageDateRange = row.getString("usagedaterange");
@@ -45,10 +80,8 @@ public class ReqsByDateOfUse {
         int idx = usePeriods.getPeriodEntry(usageStart);
 
         LocalDate publicationDate = row.getLocalDate("publicationdate");
-        String pubPeriodLabel = Periods.periodLabelFloor(publicationDate, pubPeriodsInMonths,
-            "nopub");
         String accessType = row.getBoolean("openaccess") ? "OA_Gold" : "Controlled";
-        String itemKey = row.getUUID("kbid").toString() + "," + pubPeriodLabel + "," + accessType;
+        String itemKey = row.getUUID("kbid").toString() + "," + accessType;
         String dupKey = itemKey + "," + usageDateRange + "," + publicationDate;
         if (!dup.add(dupKey)) {
           return;
@@ -59,14 +92,6 @@ public class ReqsByDateOfUse {
         uniqueItemRequestsByPeriod.set(idx, uniqueAccessCount
             + uniqueItemRequestsByPeriod.get(idx));
 
-        JsonObject o = totalRequestsPublicationYearsByPeriod.getJsonObject(idx);
-        Long totalAccessCountPeriod = o.getLong(pubPeriodLabel, 0L);
-        o.put(pubPeriodLabel, totalAccessCountPeriod + totalAccessCount);
-
-        o = uniqueRequestsPublicationYearsByPeriod.getJsonObject(idx);
-        Long uniqueAccessCountPeriod = o.getLong(pubPeriodLabel, 0L);
-        o.put(pubPeriodLabel, uniqueAccessCountPeriod + uniqueAccessCount);
-
         JsonObject totalItem = totalItems.get(itemKey);
         JsonArray accessCountsByPeriods;
         if (totalItem != null) {
@@ -75,9 +100,8 @@ public class ReqsByDateOfUse {
               + totalAccessCount);
         } else {
           accessCountsByPeriods = new JsonArray();
-          totalItem = UseOverTime.createTotalItem(row, accessType,
-              totalAccessCount, accessCountsByPeriods, usePeriods.size());
-          totalItem.put("publicationYear", pubPeriodLabel);
+          totalItem = createTotalItem(row, accessType, totalAccessCount,
+              accessCountsByPeriods, usePeriods.size());
           items.add(totalItem);
           totalItems.put(itemKey, totalItem);
         }
@@ -90,9 +114,8 @@ public class ReqsByDateOfUse {
               + uniqueAccessCount);
         } else {
           accessCountsByPeriods = new JsonArray();
-          uniqueItem = UseOverTime.createUniqueItem(row, accessType,
-              uniqueAccessCount, accessCountsByPeriods, usePeriods.size());
-          uniqueItem.put("publicationYear", pubPeriodLabel);
+          uniqueItem = createUniqueItem(row, accessType, uniqueAccessCount,
+              accessCountsByPeriods, usePeriods.size());
           uniqueItems.put(itemKey, uniqueItem);
           items.add(uniqueItem);
         }
@@ -112,11 +135,8 @@ public class ReqsByDateOfUse {
         .put("uniqueItemRequestsTotal", uniqueItemRequestsTotal)
         .put("totalItemRequestsByPeriod", new JsonArray(totalItemRequestsByPeriod))
         .put("uniqueItemRequestsByPeriod", new JsonArray(uniqueItemRequestsByPeriod))
-        .put("totalRequestsPublicationYearsByPeriod", totalRequestsPublicationYearsByPeriod)
-        .put("uniqueRequestsPublicationYearsByPeriod", uniqueRequestsPublicationYearsByPeriod)
         .put("items", items);
-    log.debug("JSON={}", () -> json.encodePrettily());
+    log.debug("JSON={}", json::encodePrettily);
     return json;
   }
-
 }

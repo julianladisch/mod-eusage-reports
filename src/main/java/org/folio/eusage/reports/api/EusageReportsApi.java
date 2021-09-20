@@ -189,63 +189,59 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Void> getReportTitles(Vertx vertx, RoutingContext ctx) {
-    try {
-      PgCqlQuery pgCqlQuery = PgCqlQuery.query();
-      pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
-      pgCqlQuery.addField(new PgCqlField("id", PgCqlField.Type.UUID));
-      pgCqlQuery.addField(new PgCqlField("counterReportTitle", PgCqlField.Type.FULLTEXT));
-      pgCqlQuery.addField(new PgCqlField("ISBN", PgCqlField.Type.TEXT));
-      pgCqlQuery.addField(new PgCqlField("printISSN", PgCqlField.Type.TEXT));
-      pgCqlQuery.addField(new PgCqlField("onlineISSN", PgCqlField.Type.TEXT));
-      pgCqlQuery.addField(new PgCqlField("kbTitleId", PgCqlField.Type.UUID));
-      pgCqlQuery.addField(new PgCqlField("kbManualMatch", PgCqlField.Type.BOOLEAN));
+    PgCqlQuery pgCqlQuery = PgCqlQuery.query();
+    pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
+    pgCqlQuery.addField(new PgCqlField("id", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("counterReportTitle", PgCqlField.Type.FULLTEXT));
+    pgCqlQuery.addField(new PgCqlField("ISBN", PgCqlField.Type.TEXT));
+    pgCqlQuery.addField(new PgCqlField("printISSN", PgCqlField.Type.TEXT));
+    pgCqlQuery.addField(new PgCqlField("onlineISSN", PgCqlField.Type.TEXT));
+    pgCqlQuery.addField(new PgCqlField("kbTitleId", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("kbManualMatch", PgCqlField.Type.BOOLEAN));
 
-      RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
-      final String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
-      final String counterReportId = stringOrNull(params.queryParameter("counterReportId"));
-      final String providerId = stringOrNull(params.queryParameter("providerId"));
-      final TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-      final String distinct = titleEntriesTable(pool) + ".id";
+    RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+    final String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+    final String counterReportId = stringOrNull(params.queryParameter("counterReportId"));
+    final String providerId = stringOrNull(params.queryParameter("providerId"));
+    final TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
+    final String distinct = titleEntriesTable(pool) + ".id";
 
-      pgCqlQuery.parse(stringOrNull(params.queryParameter("query")));
-      String cqlWhere = pgCqlQuery.getWhereClause();
+    pgCqlQuery.parse(stringOrNull(params.queryParameter("query")));
+    String cqlWhere = pgCqlQuery.getWhereClause();
 
-      String from = titleEntriesTable(pool);
-      if (counterReportId != null) {
-        from = from + " INNER JOIN " + titleDataTable(pool)
-            + " ON titleEntryId = " + titleEntriesTable(pool) + ".id"
-            + " WHERE counterReportId = '" + UUID.fromString(counterReportId) + "'";
-        if (cqlWhere != null) {
-          from = from + " AND " + cqlWhere;
-        }
-      } else if (providerId != null) {
-        from = from + " INNER JOIN " + titleDataTable(pool)
-            + " ON titleEntryId = " + titleEntriesTable(pool) + ".id"
-            + " WHERE providerId = '" + UUID.fromString(providerId) + "'";
-        if (cqlWhere != null) {
-          from = from + " AND " + cqlWhere;
-        }
-      } else {
-        if (cqlWhere != null) {
-          from = from + " WHERE " + cqlWhere;
-        }
+    String from = titleEntriesTable(pool);
+    if (counterReportId != null) {
+      from = from + " INNER JOIN " + titleDataTable(pool)
+          + " ON titleEntryId = " + titleEntriesTable(pool) + ".id"
+          + " WHERE counterReportId = '" + UUID.fromString(counterReportId) + "'";
+      if (cqlWhere != null) {
+        from = from + " AND " + cqlWhere;
       }
-      return streamResult(ctx, pool, distinct, from, "titles",
-          row -> new JsonObject()
-              .put("id", row.getUUID(0))
-              .put("counterReportTitle", row.getString(1))
-              .put("kbTitleName", row.getString(2))
-              .put("kbTitleId", row.getUUID(3))
-              .put("kbManualMatch", row.getBoolean(4))
-              .put("printISSN", row.getString(5))
-              .put("onlineISSN", row.getString(6))
-              .put("ISBN", row.getString(7))
-              .put("DOI", row.getString(8))
-      );
-    } catch (Exception e) {
-      log.error(e.getMessage(), e);
-      return Future.failedFuture(e);
+    } else if (providerId != null) {
+      from = from + " INNER JOIN " + titleDataTable(pool)
+          + " ON titleEntryId = " + titleEntriesTable(pool) + ".id"
+          + " WHERE providerId = '" + UUID.fromString(providerId) + "'";
+      if (cqlWhere != null) {
+        from = from + " AND " + cqlWhere;
+      }
+    } else {
+      if (cqlWhere != null) {
+        from = from + " WHERE " + cqlWhere;
+      }
     }
+    return streamResult(ctx, pool, distinct, from, "titles",
+        row -> new JsonObject()
+            .put("id", row.getUUID("id"))
+            .put("counterReportTitle", row.getString("counterreporttitle"))
+            .put("kbTitleName", row.getString("kbtitlename"))
+            .put("kbTitleId", row.getUUID("kbtitleid"))
+            .put("kbManualMatch", row.getBoolean("kbmanualmatch"))
+            .put("printISSN", row.getString("printissn"))
+            .put("onlineISSN", row.getString("onlineissn"))
+            .put("ISBN", row.getString("isbn"))
+            .put("DOI", row.getString("doi"))
+            .put("publicationType", row.getString("publicationtype"))
+    );
   }
 
   Future<Void> postReportTitles(Vertx vertx, RoutingContext ctx) {
@@ -291,35 +287,30 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Void> getTitleData(Vertx vertx, RoutingContext ctx) {
-    try {
-      RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
-      String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
-      TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-      String from = titleDataTable(pool);
-      return streamResult(ctx, pool, null, from, "data",
-          row -> {
-            JsonObject obj = new JsonObject()
-                .put("id", row.getUUID(0))
-                .put("titleEntryId", row.getUUID(1))
-                .put("counterReportId", row.getUUID(2))
-                .put("counterReportTitle", row.getString(3))
-                .put("providerId", row.getUUID(4))
-                .put("usageDateRange", row.getString(6))
-                .put("uniqueAccessCount", row.getInteger(7))
-                .put("totalAccessCount", row.getInteger(8))
-                .put("openAccess", row.getBoolean(9));
-            LocalDate publicationDate = row.getLocalDate(5);
-            if (publicationDate != null) {
-              obj.put("publicationDate",
-                  publicationDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
-            }
-            return obj;
+    RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+    String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+    TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
+    String from = titleDataTable(pool);
+    return streamResult(ctx, pool, null, from, "data",
+        row -> {
+          JsonObject obj = new JsonObject()
+              .put("id", row.getUUID("id"))
+              .put("titleEntryId", row.getUUID("titleentryid"))
+              .put("counterReportId", row.getUUID("counterreportid"))
+              .put("counterReportTitle", row.getString("counterreporttitle"))
+              .put("providerId", row.getUUID("providerid"))
+              .put("usageDateRange", row.getString("usagedaterange"))
+              .put("uniqueAccessCount", row.getInteger("uniqueaccesscount"))
+              .put("totalAccessCount", row.getInteger("totalaccesscount"))
+              .put("openAccess", row.getBoolean("openaccess"));
+          LocalDate publicationDate = row.getLocalDate("publicationdate");
+          if (publicationDate != null) {
+            obj.put("publicationDate",
+                publicationDate.format(DateTimeFormatter.ISO_LOCAL_DATE));
           }
-      );
-    } catch (Exception e) {
-      log.error(e.getMessage(), e);
-      return Future.failedFuture(e);
-    }
+          return obj;
+        }
+    );
   }
 
   Future<Void> postFromCounter(Vertx vertx, RoutingContext ctx) {
@@ -336,7 +327,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
   static Tuple parseErmTitle(JsonObject resource) {
     UUID titleId = UUID.fromString(resource.getString("id"));
-    return Tuple.of(titleId, resource.getString("name"));
+    JsonObject pubObj = resource.getJsonObject("publicationType");
+    String publicationType = pubObj == null ? null : pubObj.getString("value");
+    return Tuple.of(titleId, resource.getString("name"), publicationType);
   }
 
   Future<Tuple> ermTitleLookup2(RoutingContext ctx, String identifier, String type) {
@@ -449,14 +442,16 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
               return con.preparedQuery("UPDATE " + titleEntriesTable(pool)
                   + " SET"
                   + " kbTitleName = $2,"
-                  + " kbTitleId = $3"
+                  + " kbTitleId = $3,"
+                  + " publicationType = $4"
                   + " WHERE id = $1")
-                  .execute(Tuple.of(id, kbTitleName, kbTitleId)).map(id);
+                  .execute(Tuple.of(id, kbTitleName, kbTitleId, erm.getString(2))).map(id);
             });
           }
           return ermTitleLookup2(ctx, identifier, type).compose(erm -> {
             UUID kbTitleId = erm != null ? erm.getUUID(0) : null;
             String kbTitleName = erm != null ? erm.getString(1) : null;
+            String publicationType = erm != null ? erm.getString(2) : null;
 
             return updateTitleEntryByKbTitle(pool, con, kbTitleId,
                 counterReportTitle, printIssn, onlineIssn, isbn, doi)
@@ -467,12 +462,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                   return con.preparedQuery(" INSERT INTO " + titleEntriesTable(pool)
                       + "(id, counterReportTitle,"
                       + " kbTitleName, kbTitleId,"
-                      + " kbManualMatch, printISSN, onlineISSN, ISBN, DOI)"
-                      + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)"
+                      + " kbManualMatch, printISSN, onlineISSN, ISBN, DOI, publicationType)"
+                      + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
                       + " ON CONFLICT (counterReportTitle) DO NOTHING")
                       .execute(Tuple.of(UUID.randomUUID(), counterReportTitle,
                           kbTitleName, kbTitleId,
-                          false, printIssn, onlineIssn, isbn, doi))
+                          false, printIssn, onlineIssn, isbn, doi, publicationType))
                       .compose(x ->
                           con.preparedQuery("SELECT id FROM " + titleEntriesTable(pool)
                               + " WHERE counterReportTitle = $1")
@@ -802,33 +797,28 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Void> getReportData(Vertx vertx, RoutingContext ctx) {
-    try {
-      RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
-      String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
-      TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
-      String from = agreementEntriesTable(pool);
-      return streamResult(ctx, pool, null, from, "data", row ->
-          new JsonObject()
-              .put("id", row.getUUID(0))
-              .put("kbTitleId", row.getUUID(1))
-              .put("kbPackageId", row.getUUID(2))
-              .put("type", row.getString(3))
-              .put("agreementId", row.getUUID(4))
-              .put("agreementLineId", row.getUUID(5))
-              .put("poLineId", row.getUUID(6))
-              .put("encumberedCost", row.getNumeric(7))
-              .put("invoicedCost", row.getNumeric(8))
-              .put("fiscalYearRange", row.getString(9))
-              .put("subscriptionDateRange", row.getString(10))
-              .put("coverageDateRanges", row.getString(11))
-              .put("orderType", row.getString(12))
-              .put("invoiceNumber", row.getString(13))
-              .put("poLineNumber", row.getString(14))
-      );
-    } catch (Exception e) {
-      log.error(e.getMessage(), e);
-      return Future.failedFuture(e);
-    }
+    RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+    String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+    TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
+    String from = agreementEntriesTable(pool);
+    return streamResult(ctx, pool, null, from, "data", row ->
+        new JsonObject()
+            .put("id", row.getUUID("id"))
+            .put("kbTitleId", row.getUUID("kbtitleid"))
+            .put("kbPackageId", row.getUUID("kbpackageid"))
+            .put("type", row.getString("type"))
+            .put("agreementId", row.getUUID("agreementid"))
+            .put("agreementLineId", row.getUUID("agreementlineid"))
+            .put("poLineId", row.getUUID("polineid"))
+            .put("encumberedCost", row.getNumeric("encumberedcost"))
+            .put("invoicedCost", row.getNumeric("invoicedcost"))
+            .put("fiscalYearRange", row.getString("fiscalyearrange"))
+            .put("subscriptionDateRange", row.getString("subscriptiondaterange"))
+            .put("coverageDateRanges", row.getString("coveragedateranges"))
+            .put("orderType", row.getString("ordertype"))
+            .put("invoiceNumber", row.getString("invoicenumber"))
+            .put("poLineNumber", row.getString("polinenumber"))
+    );
   }
 
   Future<Boolean> agreementExists(RoutingContext ctx, UUID agreementId) {
@@ -1177,17 +1167,13 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
-  static void getUseTotalsCsv(JsonObject json, Boolean isJournal, boolean groupByPublicationYear,
+  static void getUseTotalsCsv(JsonObject json, boolean groupByPublicationYear,
                               boolean periodOfUse, CSVPrinter writer,
                               String lead) throws IOException {
     writer.print("Totals - " + lead + " item requests");
-    if (isJournal == null || isJournal) {
-      writer.print(null);
-      writer.print(null);
-    }
-    if (isJournal == null || !isJournal) {
-      writer.print(null);
-    }
+    writer.print(null);
+    writer.print(null);
+    writer.print(null);
     if (periodOfUse) {
       writer.print(null);
     }
@@ -1211,31 +1197,26 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     writer.println();
   }
 
-  static String getUseOverTime2Csv(JsonObject json, Boolean isJournal,
-                                 boolean groupByPublicationYear,
-                                 boolean periodOfUse) {
+  static String getUseOverTime2Csv(JsonObject json, boolean groupByPublicationYear,
+      boolean periodOfUse) {
+
     StringWriter stringWriter = new StringWriter();
     try {
       CSVPrinter writer = new CSVPrinter(stringWriter, CSV_FORMAT);
-      getUseOverTime2Csv(json, isJournal, groupByPublicationYear, periodOfUse, writer);
+      getUseOverTime2Csv(json, groupByPublicationYear, periodOfUse, writer);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
     return stringWriter.toString();
   }
 
-  static void getUseOverTime2Csv(JsonObject json, Boolean isJournal,
-                                 boolean groupByPublicationYear,
-                                 boolean periodOfUse, CSVPrinter writer)
-      throws IOException {
+  static void getUseOverTime2Csv(JsonObject json, boolean groupByPublicationYear,
+      boolean periodOfUse, CSVPrinter writer) throws IOException {
+
     writer.print("Title");
-    if (isJournal == null || isJournal) {
-      writer.print("Print ISSN");
-      writer.print("Online ISSN");
-    }
-    if (isJournal == null || !isJournal) {
-      writer.print("ISBN");
-    }
+    writer.print("Print ISSN");
+    writer.print("Online ISSN");
+    writer.print("ISBN");
     if (periodOfUse) {
       writer.print("Period of use");
     }
@@ -1253,20 +1234,16 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     }
     writer.println();
 
-    getUseTotalsCsv(json, isJournal, groupByPublicationYear, periodOfUse, writer, "total");
-    getUseTotalsCsv(json, isJournal, groupByPublicationYear, periodOfUse, writer, "unique");
+    getUseTotalsCsv(json, groupByPublicationYear, periodOfUse, writer, "total");
+    getUseTotalsCsv(json, groupByPublicationYear, periodOfUse, writer, "unique");
 
     JsonArray items = json.getJsonArray("items");
     for (int j = 0; j < items.size(); j++) {
       JsonObject item = items.getJsonObject(j);
       writer.print(item.getString("title"));
-      if (isJournal == null || isJournal) {
-        writer.print(item.getString("printISSN"));
-        writer.print(item.getString("onlineISSN"));
-      }
-      if (isJournal == null || !isJournal) {
-        writer.print(item.getString("ISBN"));
-      }
+      writer.print(item.getString("printISSN"));
+      writer.print(item.getString("onlineISSN"));
+      writer.print(item.getString("ISBN"));
       if (groupByPublicationYear) {
         writer.print(item.getString("publicationYear"));
       }
@@ -1330,7 +1307,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           if (!csv) {
             return json.encodePrettily();
           }
-          return getUseOverTime2Csv(json, isJournal, false, false);
+          return getUseOverTime2Csv(json, false, false);
         });
   }
 
@@ -1342,152 +1319,22 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     Tuple tuple = Tuple.of(agreementId);
     periods.addStartDates(tuple);
     periods.addEnd(tuple);
-
-    StringBuilder sql = new StringBuilder();
-    if (includeOA) {
-      useOverTime(sql, pool, isJournal, true, true, periods.size());
-      sql.append(" UNION ");
-      useOverTime(sql, pool, isJournal, true, false, periods.size());
-      sql.append(" UNION ");
-    }
-    useOverTime(sql, pool, isJournal, false, true, periods.size());
-    sql.append(" UNION ");
-    useOverTime(sql, pool, isJournal, false, false, periods.size());
-    sql.append(" ORDER BY title, kbId, accessType, metricType");
-
-    return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
-      JsonArray items = new JsonArray();
-      LongAdder [] totalItemRequestsByPeriod = LongAdder.arrayOfLength(periods.size());
-      LongAdder [] uniqueItemRequestsByPeriod = LongAdder.arrayOfLength(periods.size());
-      rowSet.forEach(row -> {
-        JsonArray accessCountsByPeriod = new JsonArray();
-        LongAdder accessCountTotal = new LongAdder();
-        boolean unique = "Unique_Item_Requests".equals(row.getString("metrictype"));
-        int skip = 4;
-        if (isJournal == null || !isJournal) {
-          skip++;
-        }
-        if (isJournal == null || isJournal) {
-          skip += 2;
-        }
-        int pos0 = skip;
-        for (int i = 0; i < periods.size(); i++) {
-          Long l = row.getLong(pos0 + i);
-          accessCountsByPeriod.add(l);
-          accessCountTotal.add(l);
-          if (unique) {
-            uniqueItemRequestsByPeriod[i].add(l);
-          } else {
-            totalItemRequestsByPeriod[i].add(l);
-          }
-        }
-        JsonObject json = new JsonObject()
-            .put("kbId", row.getUUID("kbid"))
-            .put("title", row.getString("title"));
-        if (isJournal == null || isJournal) {
-          json.put("printISSN", row.getString("printissn"))
-              .put("onlineISSN", row.getString("onlineissn"));
-        }
-        if (isJournal == null || !isJournal) {
-          json.put("ISBN", row.getString("isbn"));
-        }
-        json
-            .put("accessType", row.getString("accesstype"))
-            .put("metricType", row.getString("metrictype"))
-            .put("accessCountTotal", accessCountTotal.get())
-            .put("accessCountsByPeriod", accessCountsByPeriod);
-        items.add(json);
-      });
-      return new JsonObject()
-          .put("agreementId", agreementId)
-          .put("accessCountPeriods", periods.getAccessCountPeriods())
-          .put("totalItemRequestsTotal", LongAdder.sum(totalItemRequestsByPeriod))
-          .put("totalItemRequestsByPeriod", LongAdder.longArray(totalItemRequestsByPeriod))
-          .put("uniqueItemRequestsTotal", LongAdder.sum(uniqueItemRequestsByPeriod))
-          .put("uniqueItemRequestsByPeriod", LongAdder.longArray(uniqueItemRequestsByPeriod))
-          .put("items", items);
-    });
-  }
-
-  /**
-   * Append to <code>sql</code>. The appended SELECT statement is like this for kb titles:
-   *
-   * <pre>
-   * SELECT title_entries.kbTitleId AS kbId,
-   *        kbTitleName, printISSN, onlineISSN,
-   *        publicationYear,
-   *        'OA_Gold' AS accessType, 'Unique_Item_Requests' AS metricType,
-   *        n0, n1
-   * FROM agreement_entries
-   * JOIN title_entries USING (kbTitleId)
-   * LEFT JOIN (
-   *   SELECT titleEntryId,
-   *          extract(year from publicationDate)::integer AS publicationYear,
-   *          sum(uniqueAccessCount) AS n0
-   *   FROM title_data
-   *   WHERE daterange($2, $3) @> lower(usageDateRange) AND openAccess
-   *   GROUP BY 1, 2
-   * ) t0 ON t0.titleEntryId = title_entries.id
-   * LEFT JOIN (
-   *   SELECT titleEntryId,
-   *          extract(year from publicationDate)::integer AS publicationYear,
-   *          sum(uniqueAccessCount) AS n1
-   *   FROM title_data
-   *   WHERE daterange($3, $4) @> lower(usageDateRange) AND openAccess
-   *   GROUP BY 1, 2
-   * ) t1 ON t1.titleEntryId = title_entries.id
-   * WHERE agreementId = $1
-   *   AND NOT (printISSN IS NULL AND onlineISSN IS NULL)
-   * </pre>
-   */
-  private static void useOverTime(StringBuilder sql, TenantPgPool pool,
-                                  Boolean isJournal, boolean openAccess, boolean unique,
-                                  int periods) {
-
-    sql.append("SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title, ")
-        .append(isJournal == null || isJournal ? "printISSN, onlineISSN, " : "")
-        .append(isJournal == null || !isJournal ? "ISBN, " : "")
-        .append(openAccess ? "'OA_Gold' AS accessType, "
-            : "'Controlled' AS accessType, ")
-        .append(unique ? "'Unique_Item_Requests' AS metricType "
-            : "'Total_Item_Requests' AS metricType ");
-    for (int i = 0; i < periods; i++) {
-      sql.append(", n").append(i);
-    }
-    sql
-        .append(" FROM ").append(agreementEntriesTable(pool))
-        .append(" LEFT JOIN ").append(packageEntriesTable(pool))
-        .append(" USING (kbPackageId)")
-        .append(" JOIN ").append(titleEntriesTable(pool)).append(" ON")
-        .append(" title_entries.kbTitleId = agreement_entries.kbTitleId OR")
-        .append(" title_entries.kbTitleId = package_entries.kbTitleId");
-    for (int i = 0; i < periods; i++) {
-      sql.append(" LEFT JOIN (")
-      .append(" SELECT titleEntryId, ")
-        .append("sum(")
-        .append(unique ? "uniqueAccessCount" : "totalAccessCount")
-        .append(") AS n").append(i)
-      .append(" FROM ").append(titleDataTable(pool))
-      .append(" WHERE daterange($").append(2 + i).append(", $").append(2 + i + 1)
-        .append(") @> lower(usageDateRange)")
-        .append(openAccess ? " AND openAccess" : " AND NOT openAccess")
-      .append(" GROUP BY 1")
-      .append(" ) t").append(i).append(" ON t").append(i).append(".titleEntryId = ")
-        .append(titleEntriesTable(pool)).append(".id");
-    }
-    sql.append(" WHERE agreementId = $1").append(limitJournal(isJournal));
+    return getTitles(pool, isJournal, includeOA, agreementId, periods,
+          "title, publicationDate, openAccess")
+          .map(rowSet -> UseOverTime.titlesToJsonObject(rowSet, agreementId, periods));
   }
 
   Future<String> getReqsByDateOfUse(TenantPgPool pool, Boolean isJournal, boolean includeOA,
-                                    String agreementId, String accessCountPeriod,
-                                    String start, String end, String yopInterval, boolean csv) {
+      String agreementId, String accessCountPeriod,
+      String start, String end, String yopInterval, boolean csv) {
+
     return getReqsByDateOfUse(pool, isJournal, includeOA, agreementId,
         accessCountPeriod, start, end, yopInterval)
         .map(json -> {
           if (!csv) {
             return json.encodePrettily();
           }
-          return getUseOverTime2Csv(json, isJournal, true, false);
+          return getUseOverTime2Csv(json, true, false);
         });
   }
 
@@ -1520,7 +1367,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         ? 12 : Periods.getPeriodInMonths(yopInterval);
     return getTitles(pool, isJournal, includeOA, agreementId, usePeriods,
         "title, publicationDate, openAccess")
-        .map(rowSet -> ReqsByDateOfUse.titlesToJsonObject(rowSet, isJournal, agreementId,
+        .map(rowSet -> ReqsByDateOfUse.titlesToJsonObject(rowSet, agreementId,
             usePeriods, pubPeriodsInMonths));
   }
 
@@ -1555,7 +1402,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           if (!csv) {
             return json.encodePrettily();
           }
-          return getUseOverTime2Csv(json, isJournal, false, true);
+          return getUseOverTime2Csv(json, false, true);
         });
   }
 
@@ -1568,7 +1415,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
     return getTitles(pool, isJournal, includeOA, agreementId, usePeriods,
         "title, usageDateRange, openAccess")
-        .map(rowSet -> ReqsByPubYear.titlesToJsonObject(rowSet, isJournal, agreementId,
+        .map(rowSet -> ReqsByPubYear.titlesToJsonObject(rowSet, agreementId,
             usePeriods, pubPeriodsInMonths));
   }
 
@@ -1597,8 +1444,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     if (isJournal == null) {
       return "";
     }
-    return isJournal ? " AND (printISSN IS NOT NULL OR onlineISSN IS NOT NULL)"
-        : " AND (printISSN IS NULL AND onlineISSN IS NULL)";
+    return isJournal ? " AND publicationType = 'serial'"
+        : " AND publicationType = 'monograph'";
   }
 
   static Number formatCost(Double n) {
@@ -1620,28 +1467,24 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     return String.join(" ", ar.getList());
   }
 
-  static String getCostPerUse2Csv(JsonObject json, Boolean isJournal) {
+  static String getCostPerUse2Csv(JsonObject json) {
     StringWriter stringWriter = new StringWriter();
     try {
       CSVPrinter writer = new CSVPrinter(stringWriter, CSV_FORMAT);
-      getCostPerUse2Csv(json, isJournal, writer);
+      getCostPerUse2Csv(json, writer);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
     return stringWriter.toString();
   }
 
-  static void getCostPerUse2Csv(JsonObject json, Boolean isJournal, CSVPrinter writer)
+  static void getCostPerUse2Csv(JsonObject json, CSVPrinter writer)
       throws IOException {
     writer.print("Agreement line");
     writer.print("Derived Title");
-    if (isJournal == null || isJournal) {
-      writer.print("Print ISSN");
-      writer.print("Online ISSN");
-    }
-    if (isJournal == null || !isJournal) {
-      writer.print("ISBN");
-    }
+    writer.print("Print ISSN");
+    writer.print("Online ISSN");
+    writer.print("ISBN");
     writer.print("Order type");
     writer.print("Purchase order line");
     writer.print("Invoice number");
@@ -1659,13 +1502,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
     writer.print("Totals"); // agreement line
     writer.print(null); // publication type
-    if (isJournal == null || isJournal) {
-      writer.print(null); // print issn
-      writer.print(null); // online ISSN
-    }
-    if (isJournal == null || !isJournal) {
-      writer.print(null); // ISBN
-    }
+    writer.print(null); // print issn
+    writer.print(null); // online ISSN
+    writer.print(null); // ISBN
     writer.print(null); // Order type
     writer.print(null); // Purchase order line
     writer.print(null); // Invoice number
@@ -1691,13 +1530,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       JsonObject item = items.getJsonObject(i);
       writer.print(item.getString("title"));
       writer.print(item.getBoolean("derivedTitle") ? "Y" : "N");
-      if (isJournal == null || isJournal) {
-        writer.print(item.getString("printISSN"));
-        writer.print(item.getString("onlineISSN"));
-      }
-      if (isJournal == null || !isJournal) {
-        writer.print(item.getString("ISBN"));
-      }
+      writer.print(item.getString("printISSN"));
+      writer.print(item.getString("onlineISSN"));
+      writer.print(item.getString("ISBN"));
       writer.print(item.getString("orderType"));
       writer.print(orderLinesToString(item.getJsonArray("poLineIDs")));
       writer.print(orderLinesToString(item.getJsonArray("invoiceNumbers")));
@@ -1937,7 +1772,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           if (!csv) {
             return json.encodePrettily();
           }
-          return getCostPerUse2Csv(json, isJournal);
+          return getCostPerUse2Csv(json);
         });
   }
 
@@ -2032,7 +1867,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + "printISSN text, "
             + "onlineISSN text, "
             + "ISBN text, "
-            + "DOI text"
+            + "DOI text, "
+            + "publicationType text"
             + ")",
         "CREATE INDEX IF NOT EXISTS title_entries_kbTitleId ON "
             + titleEntriesTable(pool) + " USING btree(kbTitleId)",
