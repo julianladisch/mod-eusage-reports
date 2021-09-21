@@ -71,17 +71,29 @@ public class UseOverTime {
       uniqueItemRequestsByPeriod.add(0L);
     }
     rowSet.forEach(row -> {
+      log.info("AD 2: {}", row.deepToString());
       String usageDateRange = row.getString("usagedaterange");
       Long totalAccessCount = row.getLong("totalaccesscount");
       Long uniqueAccessCount = row.getLong("uniqueaccesscount");
-      if (usageDateRange != null && totalAccessCount > 0L) {
+
+      if (usageDateRange == null) {
+        String itemKey1 = row.getUUID("kbid").toString() + "," + "OA_Gold";
+        String itemKey2 = row.getUUID("kbid").toString() + "," + "Controlled";
+
+        if (!totalItems.containsKey(itemKey1) && !totalItems.containsKey(itemKey2)) {
+          JsonArray accessCountsByPeriods = new JsonArray();
+          JsonObject item = createItem(row, null, null, 0L,
+              accessCountsByPeriods, usePeriods.size());
+          items.add(item);
+        }
+      } else {
+        String accessType = row.getBoolean("openaccess") ? "OA_Gold" : "Controlled";
+        String itemKey = row.getUUID("kbid").toString() + "," + accessType;
         LocalDate usageStart = usePeriods.floorMonths(LocalDate.parse(
             usageDateRange.substring(1, 11)));
         int idx = usePeriods.getPeriodEntry(usageStart);
 
         LocalDate publicationDate = row.getLocalDate("publicationdate");
-        String accessType = row.getBoolean("openaccess") ? "OA_Gold" : "Controlled";
-        String itemKey = row.getUUID("kbid").toString() + "," + accessType;
         String dupKey = itemKey + "," + usageDateRange + "," + publicationDate;
         if (!dup.add(dupKey)) {
           return;

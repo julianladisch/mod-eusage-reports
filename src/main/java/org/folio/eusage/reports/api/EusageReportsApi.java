@@ -395,8 +395,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           JsonArray ar = res.bodyAsJsonArray();
           List<UUID> list = new ArrayList<>();
           for (int i = 0; i < ar.size(); i++) {
-            UUID kbTitleId = UUID.fromString(ar.getJsonObject(i).getJsonObject("pti")
-                .getJsonObject("titleInstance").getString("id"));
+            JsonObject pti = ar.getJsonObject(i).getJsonObject("pti");
+            JsonObject titleInstance = pti.getJsonObject("titleInstance");
+            log.info("AD: id {} name = {}", titleInstance.getString("id"),
+                titleInstance.getString("name"));
+            UUID kbTitleId = UUID.fromString(titleInstance.getString("id"));
             list.add(kbTitleId);
           }
           return list;
@@ -521,10 +524,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           }
           return ermTitleLookup(ctx, kbTitleId).compose(erm -> {
             String kbTitleName = erm.getString(1);
+            String publicationType = erm.getString(2);
             return con.preparedQuery("INSERT INTO " + titleEntriesTable(pool)
-                    + "(id, kbTitleName, kbTitleId, kbManualMatch)"
-                    + " VALUES ($1, $2, $3, $4)")
-                .execute(Tuple.of(UUID.randomUUID(), kbTitleName, kbTitleId, false))
+                    + "(id, kbTitleName, kbTitleId, kbManualMatch, publicationType)"
+                    + " VALUES ($1, $2, $3, $4, $5)")
+                .execute(Tuple.of(UUID.randomUUID(), kbTitleName, kbTitleId, false,
+                    publicationType))
                 .mapEmpty();
           });
         });
@@ -1343,7 +1348,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     Tuple tuple = Tuple.of(agreementId);
     periods.addStartDates(tuple);
     periods.addEnd(tuple);
-    return getTitles(pool, isJournal, includeOA, agreementId, periods,
+    return getTitles2(pool, isJournal, includeOA, agreementId, periods,
         "title, publicationDate, openAccess")
         .map(rowSet -> UseOverTime.titlesToJsonObject(rowSet, agreementId, periods));
   }
@@ -1447,6 +1452,39 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       String agreementId, Periods usePeriods, String orderBy) {
 
     String sql = "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
+        + " kbPackageId, kbPackageName, printISSN, onlineISSN, ISBN,"
+        + " publicationDate, usageDateRange, uniqueAccessCount, totalAccessCount, openAccess"
+        + " FROM " + agreementEntriesTable(pool)
+        + " LEFT JOIN " + packageEntriesTable(pool) + " USING (kbPackageId)"
+        + " JOIN " + titleEntriesTable(pool) + " ON"
+        + " title_entries.kbTitleId = agreement_entries.kbTitleId OR"
+        + " title_entries.kbTitleId = package_entries.kbTitleId"
+        + " JOIN " + titleDataTable(pool) + " ON titleEntryId = title_entries.id"
+        + " WHERE agreementId = $1"
+        + limitJournal(isJournal)
+        + "   AND daterange($2, $3) @> lower(usageDateRange)"
+        +  (includeOA ? "" : " AND NOT openAccess")
+        + " ORDER BY " + orderBy;
+    return pool.preparedQuery(sql)
+        .execute(Tuple.of(agreementId, usePeriods.startDate, usePeriods.endDate));
+  }
+
+  static Future<RowSet<Row>> getTitles2(TenantPgPool pool, Boolean isJournal, boolean includeOA,
+      String agreementId, Periods usePeriods, String orderBy) {
+
+    String sql = "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
+        + " kbPackageId, kbPackageName, printISSN, onlineISSN, ISBN, "
+        + " NULL AS publicationDate, NULL AS usageDateRange, "
+        + " NULL AS uniqueAccessCount, NULL AS totalAccessCount, TRUE AS openAccess"
+        + " FROM " + agreementEntriesTable(pool)
+        + " LEFT JOIN " + packageEntriesTable(pool) + " USING (kbPackageId)"
+        + " JOIN " + titleEntriesTable(pool) + " ON"
+        + " title_entries.kbTitleId = agreement_entries.kbTitleId OR"
+        + " title_entries.kbTitleId = package_entries.kbTitleId"
+        + " WHERE agreementId = $1"
+        + limitJournal(isJournal)
+        + " UNION "
+        +  "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
         + " kbPackageId, kbPackageName, printISSN, onlineISSN, ISBN,"
         + " publicationDate, usageDateRange, uniqueAccessCount, totalAccessCount, openAccess"
         + " FROM " + agreementEntriesTable(pool)
