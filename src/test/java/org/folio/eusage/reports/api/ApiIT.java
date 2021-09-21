@@ -1,4 +1,4 @@
-package org.folio.tlib.api;
+package org.folio.eusage.reports.api;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.hamcrest.CoreMatchers.nullValue;
