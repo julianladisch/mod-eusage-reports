@@ -32,9 +32,8 @@ import java.io.UncheckedIOException;
 import java.text.DecimalFormat;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeFormatterBuilder;
-import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -286,6 +285,31 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
+  Future<Void> getReportPackages(Vertx vertx, RoutingContext ctx) {
+    PgCqlQuery pgCqlQuery = PgCqlQuery.query();
+    pgCqlQuery.addField(new PgCqlField("kbPackageId", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("kbPackageName", PgCqlField.Type.FULLTEXT));
+    pgCqlQuery.addField(new PgCqlField("kbTitleId", PgCqlField.Type.UUID));
+
+    RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
+    final String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+    final TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
+
+    pgCqlQuery.parse(stringOrNull(params.queryParameter("query")));
+    String cqlWhere = pgCqlQuery.getWhereClause();
+
+    String from = packageEntriesTable(pool);
+    if (cqlWhere != null) {
+      from = from + " WHERE " + cqlWhere;
+    }
+    return streamResult(ctx, pool, null, from, "packages",
+        row -> new JsonObject()
+            .put("kbPackageId", row.getUUID("kbpackageid"))
+            .put("kbPackageName", row.getString("kbpackagename"))
+            .put("kbTitleId", row.getUUID("kbtitleid"))
+    );
+  }
+
   Future<Void> getTitleData(Vertx vertx, RoutingContext ctx) {
     RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
     String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
@@ -367,7 +391,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
   Future<List<UUID>> ermPackageContentLookup(RoutingContext ctx, UUID id) {
     // example: /erm/packages/dfb61870-1252-4ece-8f75-db02faf4ab82/content
-    String uri = "/erm/packages/" + id + "/content";
+    String uri = "/erm/packages/" + id + "/content?perPage=200000";
     return getRequestSend(ctx, uri)
         .map(res -> {
           JsonArray ar = res.bodyAsJsonArray();
@@ -508,32 +532,26 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Void> createPackageFromAgreement(TenantPgPool pool, SqlConnection con, UUID kbPackageId,
-                                          String kbPackageName, RoutingContext ctx) {
+      String kbPackageName, RoutingContext ctx) {
+
     if (kbPackageId == null) {
       return Future.succeededFuture();
     }
-    return con.preparedQuery("SELECT * FROM " + packageEntriesTable(pool)
-        + " WHERE kbPackageId = $1")
-        .execute(Tuple.of(kbPackageId))
-        .compose(res -> {
-          if (res.iterator().hasNext()) {
-            return Future.succeededFuture();
-          }
-          return ermPackageContentLookup(ctx, kbPackageId)
-              .compose(list -> {
-                Future<Void> future = Future.succeededFuture();
-                for (UUID kbTitleId : list) {
-                  future = future.compose(x -> createTitleFromAgreement(pool, con, kbTitleId, ctx));
-                  future = future.compose(x ->
-                    con.preparedQuery("INSERT INTO " + packageEntriesTable(pool)
+    return ermPackageContentLookup(ctx, kbPackageId)
+        .compose(list -> {
+          Future<Void> future = con.preparedQuery("DELETE FROM " + packageEntriesTable(pool)
+              + " WHERE kbPackageId = $1").execute(Tuple.of(kbPackageId)).mapEmpty();
+          for (UUID kbTitleId : list) {
+            future = future.compose(x -> createTitleFromAgreement(pool, con, kbTitleId, ctx));
+            future = future.compose(x ->
+                con.preparedQuery("INSERT INTO " + packageEntriesTable(pool)
                         + "(kbPackageId, kbPackageName, kbTitleId)"
                         + "VALUES ($1, $2, $3)")
-                        .execute(Tuple.of(kbPackageId, kbPackageName, kbTitleId))
-                        .mapEmpty()
-                  );
-                }
-                return future;
-              });
+                    .execute(Tuple.of(kbPackageId, kbPackageName, kbTitleId))
+                    .mapEmpty()
+            );
+          }
+          return future;
         });
   }
 
@@ -1127,7 +1145,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                   // expand agreement to get agreement lines, now that we know the ID is good.
                   // the call below returns 500 with a stacktrace if agreement ID is no good.
                   // example: /erm/entitlements?filters=owner%3D3b6623de-de39-4b43-abbc-998bed892025
-                  String uri = "/erm/entitlements?filters=owner%3D" + agreementId;
+                  String uri = "/erm/entitlements?perPage=200000&filters=owner%3D" + agreementId;
                   return populateStatus(pool, agreementId, true)
                       .compose(x -> clearAgreement(pool, con, agreementId))
                       .compose(x -> getRequestSend(ctx, uri))
@@ -1152,7 +1170,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     log.info("populateStatus begin");
     JsonObject status = new JsonObject()
         .put("id", agreementId.toString())
-        .put("lastUpdated", LocalDateTime.now().toString())
+        .put("lastUpdated", LocalDateTime.now(ZoneOffset.UTC).toString())
         .put("active", active);
     return pool.preparedQuery("INSERT INTO " + statusTable(pool)
             + "(id, status) VALUES($1, $2) ON CONFLICT(id) DO UPDATE SET status = $2")
@@ -1843,6 +1861,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         .map(routerBuilder -> {
           add(routerBuilder, "getReportTitles", ctx -> getReportTitles(vertx, ctx));
           add(routerBuilder, "postReportTitles", ctx -> postReportTitles(vertx, ctx));
+          add(routerBuilder, "getReportPackages", ctx -> getReportPackages(vertx, ctx));
           add(routerBuilder, "postFromCounter", ctx -> postFromCounter(vertx, ctx));
           add(routerBuilder, "getTitleData", ctx -> getTitleData(vertx, ctx));
           add(routerBuilder, "getReportData", ctx -> getReportData(vertx, ctx));
