@@ -361,10 +361,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       return Future.succeededFuture();
     }
     // some titles do not have hyphen in identifier, so try that as well
-    return ermTitleLookup(ctx, identifier, type).compose(x -> x != null
-        ? Future.succeededFuture(x)
-        : ermTitleLookup(ctx, identifier.replace("-", ""), type)
-    );
+    String identifierNoHyphen = identifier.replace("-", "");
+    return ermTitleLookup(ctx, identifier, type)
+        .compose(x -> x != null || identifierNoHyphen.equals(identifier)
+            ? Future.succeededFuture(x)
+            : ermTitleLookup(ctx, identifierNoHyphen, type)
+        );
   }
 
   Future<Tuple> ermTitleLookup(RoutingContext ctx, String identifier, String type) {
@@ -1895,6 +1897,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + ")",
         "CREATE INDEX IF NOT EXISTS title_entries_kbTitleId ON "
             + titleEntriesTable(pool) + " USING btree(kbTitleId)",
+        "CREATE INDEX IF NOT EXISTS title_entries_counterReportTitle ON "
+            + titleEntriesTable(pool) + " USING btree(counterReportTitle)",
         "CREATE TABLE IF NOT EXISTS " + packageEntriesTable(pool) + " ( "
             + "kbPackageId UUID, "
             + "kbPackageName text, "
