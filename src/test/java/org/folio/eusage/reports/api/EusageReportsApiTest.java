@@ -484,7 +484,7 @@ assertThat(json.getJsonArray("items").size(), is(4));
           assertThat(json.getLong("uniqueItemRequestsTotal"), is(21L));
           assertThat((List<?>) json.getJsonArray("totalItemRequestsByPeriod").getList(), contains(0L, 42L, 0L, 0L));
           assertThat((List<?>) json.getJsonArray("uniqueItemRequestsByPeriod").getList(), contains(0L, 21L, 0L, 0L));
-          assertThat(json.getJsonArray("items").size(), is(4));
+          assertThat(json.getJsonArray("items").size(), is(5));
         }));
   }
 
@@ -504,6 +504,7 @@ assertThat(json.getJsonArray("items").size(), is(4));
   public void useOverTimeBook(TestContext context) {
     getUseOverTime(false, true, a2, null, "2020-05", "2020-06")
     .onComplete(context.asyncAssertSuccess(json -> {
+      System.out.println(json.encodePrettily());
       assertThat(json.getLong("totalItemRequestsTotal"), is(42L));
       assertThat(json.getLong("uniqueItemRequestsTotal"), is(21L));
       assertThat((List<?>) json.getJsonArray("totalItemRequestsByPeriod").getList(), contains(40L, 2L));
@@ -530,7 +531,7 @@ assertThat(json.getJsonArray("items").size(), is(4));
           assertThat(json.getLong("uniqueItemRequestsTotal"), is(42L));
           assertThat((List<?>) json.getJsonArray("totalItemRequestsByPeriod").getList(), contains(80L, 4L));
           assertThat((List<?>) json.getJsonArray("uniqueItemRequestsByPeriod").getList(), contains(40L, 2L));
-          assertThat(json.getJsonArray("items").size(), is(8));
+          assertThat(json.getJsonArray("items").size(), is(9));
         }));
   }
 
@@ -538,11 +539,32 @@ assertThat(json.getJsonArray("items").size(), is(4));
   public void useOverTimeJournal(TestContext context) {
     getUseOverTime(true, true, a2, null, "2020-05", "2020-06")
         .onComplete(context.asyncAssertSuccess(json -> {
+          System.out.println(json.encodePrettily());
           assertThat(json.getLong("totalItemRequestsTotal"), is(42L));
           assertThat(json.getLong("uniqueItemRequestsTotal"), is(21L));
           assertThat((List<?>) json.getJsonArray("totalItemRequestsByPeriod").getList(), contains(40L, 2L));
           assertThat((List<?>) json.getJsonArray("uniqueItemRequestsByPeriod").getList(), contains(20L, 1L));
-          assertThat(json.getJsonArray("items").size(), is(4));
+          assertThat(json.getJsonArray("items").size(), is(5));
+          assertThat(json.getJsonArray("items").getJsonObject(0).encodePrettily(),
+              is(new JsonObject()
+                  .put("kbId", "21000000-0000-4000-8000-000000000000")
+                  .put("title", "Title 21")
+                  .put("printISSN", "2121-1111")
+                  .put("accessType", "Controlled")
+                  .put("metricType", "Total_Item_Requests")
+                  .put("accessCountTotal", 40L)
+                  .put("accessCountsByPeriod", new JsonArray("[ 40, 0 ]"))
+                  .encodePrettily()));
+          assertThat(json.getJsonArray("items").getJsonObject(4).encodePrettily(),
+              is(new JsonObject()
+                  .put("kbId", "22000000-0000-4000-8000-000000000000")
+                  .put("title", "Title 22")
+                  .put("onlineISSN", "2222-2222")
+                  .put("accessType", null)
+                  .put("metricType", null)
+                  .put("accessCountTotal", 0L)
+                  .put("accessCountsByPeriod", new JsonArray("[ 0, 0 ]"))
+                  .encodePrettily()));
         }));
   }
 

@@ -52,7 +52,6 @@ import org.folio.tlib.TenantInitHooks;
 import org.folio.tlib.postgres.PgCqlField;
 import org.folio.tlib.postgres.PgCqlQuery;
 import org.folio.tlib.postgres.TenantPgPool;
-import org.folio.tlib.util.LongAdder;
 import org.folio.tlib.util.TenantUtil;
 
 public class EusageReportsApi implements RouterCreator, TenantInitHooks {
@@ -132,8 +131,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   static Future<Void> streamResult(RoutingContext ctx, SqlConnection sqlConnection,
-                                   String query, String cnt,
-                                   String property, Function<Row, JsonObject> handler) {
+      String query, String cnt, String property, Function<Row, JsonObject> handler) {
+
     return sqlConnection.prepare(query)
         .compose(pq ->
             sqlConnection.begin().compose(tx -> {
@@ -170,9 +169,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   static Future<Void> streamResult(RoutingContext ctx, TenantPgPool pool,
-                                   String distinct, String from,
-                                   String property,
-                                   Function<Row, JsonObject> handler) {
+      String distinct, String from, String property, Function<Row, JsonObject> handler) {
+
     RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
     Integer offset = params.queryParameter("offset").getInteger();
     Integer limit = params.queryParameter("limit").getInteger();
@@ -260,11 +258,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             Boolean kbManualMatch = titleEntry.getBoolean("kbManualMatch", true);
             future = future.compose(x ->
                 sqlConnection.preparedQuery("UPDATE " + titleEntriesTable(pool)
-                    + " SET"
-                    + " kbTitleName = $2,"
-                    + " kbTitleId = $3,"
-                    + " kbManualMatch = $4"
-                    + " WHERE id = $1")
+                        + " SET"
+                        + " kbTitleName = $2,"
+                        + " kbTitleId = $3,"
+                        + " kbManualMatch = $4"
+                        + " WHERE id = $1")
                     .execute(Tuple.of(id, kbTitleName, kbTitleIdStr == null
                         ? null : UUID.fromString(kbTitleIdStr), kbManualMatch))
                     .compose(rowSet -> {
@@ -397,8 +395,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           JsonArray ar = res.bodyAsJsonArray();
           List<UUID> list = new ArrayList<>();
           for (int i = 0; i < ar.size(); i++) {
-            UUID kbTitleId = UUID.fromString(ar.getJsonObject(i).getJsonObject("pti")
-                .getJsonObject("titleInstance").getString("id"));
+            JsonObject pti = ar.getJsonObject(i).getJsonObject("pti");
+            JsonObject titleInstance = pti.getJsonObject("titleInstance");
+            log.info("AD: id {} name = {}", titleInstance.getString("id"),
+                titleInstance.getString("name"));
+            UUID kbTitleId = UUID.fromString(titleInstance.getString("id"));
             list.add(kbTitleId);
           }
           return list;
@@ -436,11 +437,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<UUID> upsertTitleEntryCounterReport(TenantPgPool pool, SqlConnection con,
-                                             RoutingContext ctx, String counterReportTitle,
-                                             String printIssn, String onlineIssn, String isbn,
-                                             String doi) {
+      RoutingContext ctx, String counterReportTitle,
+      String printIssn, String onlineIssn, String isbn, String doi) {
+
     return con.preparedQuery("SELECT * FROM " + titleEntriesTable(pool)
-        + " WHERE counterReportTitle = $1")
+            + " WHERE counterReportTitle = $1")
         .execute(Tuple.of(counterReportTitle))
         .compose(res1 -> {
           String identifier = null;
@@ -470,11 +471,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
               String kbTitleName = erm.getString(1);
               String publicationType = erm.getString(2);
               return con.preparedQuery("UPDATE " + titleEntriesTable(pool)
-                  + " SET"
-                  + " kbTitleName = $2,"
-                  + " kbTitleId = $3,"
-                  + " publicationType = $4"
-                  + " WHERE id = $1")
+                      + " SET"
+                      + " kbTitleName = $2,"
+                      + " kbTitleId = $3,"
+                      + " publicationType = $4"
+                      + " WHERE id = $1")
                   .execute(Tuple.of(id, kbTitleName, kbTitleId, publicationType)).map(id);
             });
           }
@@ -490,17 +491,17 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                     return Future.succeededFuture(id);
                   }
                   return con.preparedQuery(" INSERT INTO " + titleEntriesTable(pool)
-                      + "(id, counterReportTitle,"
-                      + " kbTitleName, kbTitleId,"
-                      + " kbManualMatch, printISSN, onlineISSN, ISBN, DOI, publicationType)"
-                      + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
-                      + " ON CONFLICT (counterReportTitle) DO NOTHING")
+                          + "(id, counterReportTitle,"
+                          + " kbTitleName, kbTitleId,"
+                          + " kbManualMatch, printISSN, onlineISSN, ISBN, DOI, publicationType)"
+                          + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)"
+                          + " ON CONFLICT (counterReportTitle) DO NOTHING")
                       .execute(Tuple.of(UUID.randomUUID(), counterReportTitle,
                           kbTitleName, kbTitleId,
                           false, printIssn, onlineIssn, isbn, doi, publicationType))
                       .compose(x ->
                           con.preparedQuery("SELECT id FROM " + titleEntriesTable(pool)
-                              + " WHERE counterReportTitle = $1")
+                                  + " WHERE counterReportTitle = $1")
                               .execute(Tuple.of(counterReportTitle))
                               .map(res2 -> res2.iterator().next().getUUID("id")));
                 });
@@ -509,12 +510,13 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Void> createTitleFromAgreement(TenantPgPool pool, SqlConnection con,
-                                        UUID kbTitleId, RoutingContext ctx) {
+      UUID kbTitleId, RoutingContext ctx) {
+
     if (kbTitleId == null) {
       return Future.succeededFuture();
     }
     return con.preparedQuery("SELECT * FROM " + titleEntriesTable(pool)
-        + " WHERE kbTitleId = $1")
+            + " WHERE kbTitleId = $1")
         .execute(Tuple.of(kbTitleId))
         .compose(res -> {
           if (res.iterator().hasNext()) {
@@ -522,10 +524,12 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           }
           return ermTitleLookup(ctx, kbTitleId).compose(erm -> {
             String kbTitleName = erm.getString(1);
+            String publicationType = erm.getString(2);
             return con.preparedQuery("INSERT INTO " + titleEntriesTable(pool)
-                + "(id, kbTitleName, kbTitleId, kbManualMatch)"
-                + " VALUES ($1, $2, $3, $4)")
-                .execute(Tuple.of(UUID.randomUUID(), kbTitleName, kbTitleId, false))
+                    + "(id, kbTitleName, kbTitleId, kbManualMatch, publicationType)"
+                    + " VALUES ($1, $2, $3, $4, $5)")
+                .execute(Tuple.of(UUID.randomUUID(), kbTitleName, kbTitleId, false,
+                    publicationType))
                 .mapEmpty();
           });
         });
@@ -557,22 +561,22 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
   static Future<Void> clearTdEntry(TenantPgPool pool, SqlConnection con, UUID counterReportId) {
     return con.preparedQuery("DELETE FROM " + titleDataTable(pool)
-        + " WHERE counterReportId = $1")
+            + " WHERE counterReportId = $1")
         .execute(Tuple.of(counterReportId))
         .mapEmpty();
   }
 
   static Future<Void> insertTdEntry(TenantPgPool pool, SqlConnection con, UUID titleEntryId,
-                                    UUID counterReportId, String counterReportTitle,
-                                    UUID providerId, LocalDate publicationDate,
-                                    String usageDateRange,
-                                    int uniqueAccessCount, int totalAccessCount) {
+      UUID counterReportId, String counterReportTitle,
+      UUID providerId, LocalDate publicationDate,
+      String usageDateRange,
+      int uniqueAccessCount, int totalAccessCount) {
     return con.preparedQuery("INSERT INTO " + titleDataTable(pool)
-        + "(id, titleEntryId,"
-        + " counterReportId, counterReportTitle, providerId,"
-        + " publicationDate, usageDateRange,"
-        + " uniqueAccessCount, totalAccessCount, openAccess)"
-        + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)")
+            + "(id, titleEntryId,"
+            + " counterReportId, counterReportTitle, providerId,"
+            + " publicationDate, usageDateRange,"
+            + " uniqueAccessCount, totalAccessCount, openAccess)"
+            + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)")
         .execute(Tuple.of(UUID.randomUUID(), titleEntryId,
             counterReportId, counterReportTitle, providerId,
             publicationDate, usageDateRange,
@@ -655,7 +659,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Void> handleReport(TenantPgPool pool, SqlConnection con, RoutingContext ctx,
-                            JsonObject jsonObject) {
+      JsonObject jsonObject) {
+
     final UUID counterReportId = UUID.fromString(jsonObject.getString("id"));
     final UUID providerId = UUID.fromString(jsonObject.getString("providerId"));
     final JsonObject reportItem = jsonObject.getJsonObject("reportItem");
@@ -739,6 +744,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
   private Future<Boolean> populateCounterReportTitles(RoutingContext ctx, TenantPgPool pool,
       String id, String providerId, int offset) {
+
     Promise<Void> promise = Promise.promise();
     String parms = "";
     if (providerId != null) {
@@ -881,7 +887,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     }
     return lookupPurchaseOrderLine(UUID.fromString(purchaseOrderId), ctx)
         .onSuccess(purchase ->
-          result.put("orderType", purchase.getString("orderType", "Ongoing")))
+            result.put("orderType", purchase.getString("orderType", "Ongoing")))
         .mapEmpty();
   }
 
@@ -1070,8 +1076,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Void> populateAgreementLine(TenantPgPool pool, SqlConnection con,
-                                     JsonObject agreementLine, UUID agreementId,
-                                     RoutingContext ctx) {
+      JsonObject agreementLine, UUID agreementId, RoutingContext ctx) {
+
     try {
       JsonArray poLines = agreementLine.getJsonArray("poLines");
       UUID poLineId = poLines.isEmpty()
@@ -1108,11 +1114,11 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
                 String fiscalYearRange = poResult.getString("fiscalYear");
                 String poLineNumber = poResult.getString("poLineNumber");
                 return con.preparedQuery("INSERT INTO " + agreementEntriesTable(pool)
-                    + "(id, kbTitleId, kbPackageId, type,"
-                    + " agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,"
-                    + " fiscalYearRange, subscriptionDateRange, coverageDateRanges, orderType,"
-                    + " invoiceNumber,poLineNumber)"
-                    + " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)")
+                        + "(id, kbTitleId, kbPackageId, type,"
+                        + " agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,"
+                        + " fiscalYearRange, subscriptionDateRange, coverageDateRanges, orderType,"
+                        + " invoiceNumber,poLineNumber) VALUES"
+                        + " ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)")
                     .execute(Tuple.of(id, kbTitleId, kbPackageId, type,
                         agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,
                         fiscalYearRange, subScriptionDateRange, coverageDateRanges, orderType,
@@ -1192,8 +1198,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   static void getUseTotalsCsv(JsonObject json, boolean groupByPublicationYear,
-                              boolean periodOfUse, CSVPrinter writer,
-                              String lead) throws IOException {
+      boolean periodOfUse, CSVPrinter writer, String lead) throws IOException {
+
     writer.print("Totals - " + lead + " item requests");
     writer.print(null);
     writer.print(null);
@@ -1323,8 +1329,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<String> getUseOverTime(TenantPgPool pool, Boolean isJournal, boolean includeOA,
-                                String agreementId, String accessCountPeriod,
-                                String start, String end, boolean csv) {
+      String agreementId, String accessCountPeriod, String start, String end, boolean csv) {
+
     return getUseOverTime(pool, isJournal, includeOA, agreementId,
         accessCountPeriod, start, end)
         .map(json -> {
@@ -1336,16 +1342,15 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<JsonObject> getUseOverTime(TenantPgPool pool, Boolean isJournal, boolean includeOA,
-                                    String agreementId, String accessCountPeriod,
-                                    String start, String end) {
+      String agreementId, String accessCountPeriod, String start, String end) {
 
     Periods periods = new Periods(start, end, accessCountPeriod);
     Tuple tuple = Tuple.of(agreementId);
     periods.addStartDates(tuple);
     periods.addEnd(tuple);
-    return getTitles(pool, isJournal, includeOA, agreementId, periods,
-          "title, publicationDate, openAccess")
-          .map(rowSet -> UseOverTime.titlesToJsonObject(rowSet, agreementId, periods));
+    return getTitles2(pool, isJournal, includeOA, agreementId, periods,
+        "title, publicationDate, openAccess")
+        .map(rowSet -> UseOverTime.titlesToJsonObject(rowSet, agreementId, periods));
   }
 
   Future<String> getReqsByDateOfUse(TenantPgPool pool, Boolean isJournal, boolean includeOA,
@@ -1417,9 +1422,9 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<String> getReqsByPubYear(TenantPgPool pool, Boolean isJournal, boolean includeOA,
-                                  String agreementId,
-                                  String accessCountPeriod, String start, String end,
-                                  String periodOfUse, boolean csv) {
+      String agreementId, String accessCountPeriod, String start, String end,
+      String periodOfUse, boolean csv) {
+
     return getReqsByPubYear(pool, isJournal, includeOA, agreementId,
         accessCountPeriod, start, end, periodOfUse)
         .map(json -> {
@@ -1447,6 +1452,39 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       String agreementId, Periods usePeriods, String orderBy) {
 
     String sql = "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
+        + " kbPackageId, kbPackageName, printISSN, onlineISSN, ISBN,"
+        + " publicationDate, usageDateRange, uniqueAccessCount, totalAccessCount, openAccess"
+        + " FROM " + agreementEntriesTable(pool)
+        + " LEFT JOIN " + packageEntriesTable(pool) + " USING (kbPackageId)"
+        + " JOIN " + titleEntriesTable(pool) + " ON"
+        + " title_entries.kbTitleId = agreement_entries.kbTitleId OR"
+        + " title_entries.kbTitleId = package_entries.kbTitleId"
+        + " JOIN " + titleDataTable(pool) + " ON titleEntryId = title_entries.id"
+        + " WHERE agreementId = $1"
+        + limitJournal(isJournal)
+        + "   AND daterange($2, $3) @> lower(usageDateRange)"
+        +  (includeOA ? "" : " AND NOT openAccess")
+        + " ORDER BY " + orderBy;
+    return pool.preparedQuery(sql)
+        .execute(Tuple.of(agreementId, usePeriods.startDate, usePeriods.endDate));
+  }
+
+  static Future<RowSet<Row>> getTitles2(TenantPgPool pool, Boolean isJournal, boolean includeOA,
+      String agreementId, Periods usePeriods, String orderBy) {
+
+    String sql = "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
+        + " kbPackageId, kbPackageName, printISSN, onlineISSN, ISBN, "
+        + " NULL AS publicationDate, NULL AS usageDateRange, "
+        + " NULL AS uniqueAccessCount, NULL AS totalAccessCount, TRUE AS openAccess"
+        + " FROM " + agreementEntriesTable(pool)
+        + " LEFT JOIN " + packageEntriesTable(pool) + " USING (kbPackageId)"
+        + " JOIN " + titleEntriesTable(pool) + " ON"
+        + " title_entries.kbTitleId = agreement_entries.kbTitleId OR"
+        + " title_entries.kbTitleId = package_entries.kbTitleId"
+        + " WHERE agreementId = $1"
+        + limitJournal(isJournal)
+        + " UNION "
+        +  "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
         + " kbPackageId, kbPackageName, printISSN, onlineISSN, ISBN,"
         + " publicationDate, usageDateRange, uniqueAccessCount, totalAccessCount, openAccess"
         + " FROM " + agreementEntriesTable(pool)
@@ -1502,8 +1540,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     return stringWriter.toString();
   }
 
-  static void getCostPerUse2Csv(JsonObject json, CSVPrinter writer)
-      throws IOException {
+  static void getCostPerUse2Csv(JsonObject json, CSVPrinter writer) throws IOException {
     writer.print("Agreement line");
     writer.print("Derived Title");
     writer.print("Print ISSN");
@@ -1575,7 +1612,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   private static void costPerUse(StringBuilder sql, TenantPgPool pool,
-                                 Boolean isJournal, boolean includeOA, int periods) {
+      Boolean isJournal, boolean includeOA, int periods) {
+
     sql
         .append("SELECT DISTINCT ON (kbId) title_entries.kbTitleId AS kbId, kbTitleName AS title,")
         .append(" printISSN, onlineISSN, ISBN, orderType, poLineNumber, invoiceNumber,")
@@ -1616,8 +1654,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<JsonObject> costPerUse(TenantPgPool pool, Boolean isJournal, boolean includeOA,
-                                String agreementId, String accessCountPeriod,
-                                String start, String end) {
+      String agreementId, String accessCountPeriod, String start, String end) {
 
     Periods periods = new Periods(start, end, accessCountPeriod);
     Tuple tuple = Tuple.of(agreementId);
@@ -1630,7 +1667,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     log.debug("costPerUse SQL={}", sql.toString());
 
     return pool.preparedQuery(sql.toString()).execute(tuple).map(rowSet -> {
-
       JsonArray paidByPeriod = new JsonArray();
       JsonArray totalRequests = new JsonArray();
       JsonArray uniqueRequests = new JsonArray();
@@ -1684,8 +1720,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   static void costPerUseRows(RowSet<Row> rowSet, JsonObject json, Periods periods,
-                             JsonArray totalRequests, JsonArray uniqueRequests,
-                             JsonArray paidByPeriod) {
+      JsonArray totalRequests, JsonArray uniqueRequests, JsonArray paidByPeriod) {
+
     JsonArray items = new JsonArray();
     long totalTitles = rowSet.rowCount();
     rowSet.forEach(row -> {
@@ -1789,8 +1825,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<String> getCostPerUse(TenantPgPool pool, Boolean isJournal, boolean includeOA,
-                               String agreementId, String accessCountPeriod, String start,
-                               String end, boolean csv) {
+      String agreementId, String accessCountPeriod, String start, String end, boolean csv) {
+
     return costPerUse(pool, isJournal, includeOA, agreementId, accessCountPeriod, start, end)
         .map(json -> {
           if (!csv) {
@@ -1839,19 +1875,19 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         });
   }
 
-  private void add(RouterBuilder routerBuilder,
-      String operationId, Function<RoutingContext, Future<Void>> function) {
+  private void add(RouterBuilder routerBuilder, String operationId,
+      Function<RoutingContext, Future<Void>> function) {
 
     routerBuilder
-    .operation(operationId)
-    .handler(ctx -> {
-      try {
-        function.apply(ctx)
-            .onFailure(cause -> failHandler(400, ctx, cause));
-      } catch (Throwable t) {
-        failHandler(400, ctx, t);
-      }
-    }).failureHandler(EusageReportsApi::failHandler);
+        .operation(operationId)
+        .handler(ctx -> {
+          try {
+            function.apply(ctx)
+                .onFailure(cause -> failHandler(400, ctx, cause));
+          } catch (Throwable t) {
+            failHandler(400, ctx, t);
+          }
+        }).failureHandler(EusageReportsApi::failHandler);
   }
 
   @Override
@@ -1959,6 +1995,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
             + "  FROM (SELECT ((12 * extract(year FROM $1)::integer\n"
             + "                 + extract(month FROM $1)::integer - 1) / $2) * $2) AS x(m)\n"
             + "$$ LANGUAGE SQL IMMUTABLE STRICT"
-      ));
+    ));
   }
 }
