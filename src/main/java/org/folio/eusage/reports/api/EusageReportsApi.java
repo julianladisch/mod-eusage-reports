@@ -1359,7 +1359,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     Tuple tuple = Tuple.of(agreementId);
     periods.addStartDates(tuple);
     periods.addEnd(tuple);
-    return getTitles2(pool, isJournal, includeOA, agreementId, periods,
+    return getTitles(pool, isJournal, includeOA, agreementId, periods,
         "title, publicationDate, openAccess")
         .map(rowSet -> UseOverTime.titlesToJsonObject(rowSet, agreementId, periods));
   }
@@ -1460,27 +1460,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   static Future<RowSet<Row>> getTitles(TenantPgPool pool, Boolean isJournal, boolean includeOA,
-      String agreementId, Periods usePeriods, String orderBy) {
-
-    String sql = "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
-        + " kbPackageId, kbPackageName, printISSN, onlineISSN, ISBN,"
-        + " publicationDate, usageDateRange, uniqueAccessCount, totalAccessCount, openAccess"
-        + " FROM " + agreementEntriesTable(pool)
-        + " LEFT JOIN " + packageEntriesTable(pool) + " USING (kbPackageId)"
-        + " JOIN " + titleEntriesTable(pool) + " ON"
-        + " title_entries.kbTitleId = agreement_entries.kbTitleId OR"
-        + " title_entries.kbTitleId = package_entries.kbTitleId"
-        + " JOIN " + titleDataTable(pool) + " ON titleEntryId = title_entries.id"
-        + " WHERE agreementId = $1"
-        + limitJournal(isJournal)
-        + "   AND daterange($2, $3) @> lower(usageDateRange)"
-        +  (includeOA ? "" : " AND NOT openAccess")
-        + " ORDER BY " + orderBy;
-    return pool.preparedQuery(sql)
-        .execute(Tuple.of(agreementId, usePeriods.startDate, usePeriods.endDate));
-  }
-
-  static Future<RowSet<Row>> getTitles2(TenantPgPool pool, Boolean isJournal, boolean includeOA,
       String agreementId, Periods usePeriods, String orderBy) {
 
     String sql = "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
