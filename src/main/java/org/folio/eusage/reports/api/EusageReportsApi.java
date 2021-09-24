@@ -29,7 +29,6 @@ import io.vertx.sqlclient.Tuple;
 import java.io.IOException;
 import java.io.StringWriter;
 import java.io.UncheckedIOException;
-import java.text.DecimalFormat;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
@@ -39,7 +38,6 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
@@ -1509,47 +1507,28 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     return stringWriter.toString();
   }
 
-  private static void costPerUse(StringBuilder sql, TenantPgPool pool,
-      Boolean isJournal, boolean includeOA, int periods) {
+  static Future<RowSet<Row>> getTitlesCost(TenantPgPool pool, Boolean isJournal, boolean includeOA,
+      String agreementId, Periods usePeriods) {
 
-    sql
-        .append("SELECT DISTINCT ON (kbId) title_entries.kbTitleId AS kbId, kbTitleName AS title,")
-        .append(" kbPackageId,")
-        .append(" printISSN, onlineISSN, ISBN, orderType, poLineNumber, invoiceNumber,")
-        .append(" fiscalYearRange, subscriptionDateRange,")
-        .append(" encumberedCost, invoicedCost");
+    String sql = "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
+        + " kbPackageId, kbPackageName, printISSN, onlineISSN, ISBN, "
+        + " publicationDate, usageDateRange, uniqueAccessCount, totalAccessCount, openAccess, "
+        + " orderType, poLineNumber, invoiceNumber,"
+        + " fiscalYearRange, subscriptionDateRange,"
+        + " encumberedCost, invoicedCost"
+        + " FROM " + agreementEntriesTable(pool)
+        + " LEFT JOIN " + packageEntriesTable(pool) + " USING (kbPackageId)"
+        + " JOIN " + titleEntriesTable(pool) + " ON"
+        + " title_entries.kbTitleId = agreement_entries.kbTitleId OR"
+        + " title_entries.kbTitleId = package_entries.kbTitleId"
+        + " JOIN " + titleDataTable(pool) + " ON titleEntryId = title_entries.id"
+        + " WHERE agreementId = $1"
+        + limitJournal(isJournal)
+        + "   AND daterange($2, $3) @> lower(usageDateRange)"
+        +  (includeOA ? "" : " AND NOT openAccess");
 
-    for (int i = 0; i < periods; i++) {
-      sql.append(", total").append(i);
-      sql.append(", unique").append(i);
-    }
-    sql
-        .append(" FROM ").append(agreementEntriesTable(pool))
-        .append(" LEFT JOIN ").append(packageEntriesTable(pool))
-        .append(" USING (kbPackageId)")
-        .append(" JOIN ").append(titleEntriesTable(pool)).append(" ON")
-        .append(" title_entries.kbTitleId = agreement_entries.kbTitleId OR")
-        .append(" title_entries.kbTitleId = package_entries.kbTitleId");
-    for (int i = 0; i < periods; i++) {
-      sql.append(" LEFT JOIN (")
-          .append(" SELECT titleEntryId")
-          .append(", sum(totalAccessCount) as total").append(i)
-          .append(", sum(uniqueAccessCount) as unique").append(i)
-          .append(" FROM ").append(titleDataTable(pool))
-          .append(" WHERE daterange($").append(2 + i).append(", $").append(2 + i + 1)
-          .append(") @> lower(usageDateRange)")
-          .append(includeOA ? "" : " AND NOT openAccess")
-          .append(" GROUP BY 1")
-          .append(" ) t").append(i).append(" ON t").append(i).append(".titleEntryId = ")
-          .append(titleEntriesTable(pool)).append(".id")
-          .append(" AND (subscriptionDateRange IS NULL")
-          .append(" OR subscriptionDateRange @> daterange($")
-          .append(2 + i).append(", $").append(2 + i + 1).append("))")
-      ;
-
-      // TODO  .append(" AND coverageDateRanges @> t").append(i).append(".publicationDate")
-    }
-    sql.append(" WHERE agreementId = $1").append(limitJournal(isJournal));
+    return pool.preparedQuery(sql + " ORDER BY title, publicationDate")
+        .execute(Tuple.of(agreementId, usePeriods.startDate, usePeriods.endDate));
   }
 
   Future<JsonObject> costPerUse(TenantPgPool pool, Boolean isJournal, boolean includeOA,
@@ -1560,13 +1539,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
     periods.addStartDates(tuple);
     periods.addEnd(tuple);
 
-    StringBuilder sql = new StringBuilder();
-    costPerUse(sql, pool, isJournal, includeOA, periods.size());
-    sql.append(" ORDER BY kbId");
-    log.debug("costPerUse SQL={}", sql.toString());
-
-    return pool.preparedQuery(sql.toString())
-        .execute(tuple)
+    return getTitlesCost(pool, isJournal, includeOA, agreementId, periods)
         .map(rowSet -> CostPerUse.titlesToJsonObject(rowSet, periods));
   }
 
