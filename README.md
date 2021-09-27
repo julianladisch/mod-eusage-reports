@@ -31,8 +31,11 @@ and the additional module metadata.
 
 ### API documentation
 
+API descriptions:
  * [OpenAPI](src/main/resources/openapi/)
  * [Schemas](src/main/resources/openapi/schemas/)
+
+Generated [API documentation](https://dev.folio.org/reference/api/#mod-eusage-reports).
 
 ### Code analysis
 
