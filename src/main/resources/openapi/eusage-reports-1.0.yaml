@@ -109,6 +109,7 @@ paths:
       - $ref: headers/okapi-url.yaml
       - $ref: parameters/offset.yaml
       - $ref: parameters/limit.yaml
+      - $ref: parameters/query.yaml
     get:
       description: Get title data
       operationId: getTitleData
@@ -130,6 +131,7 @@ paths:
       - $ref: headers/okapi-url.yaml
       - $ref: parameters/offset.yaml
       - $ref: parameters/limit.yaml
+      - $ref: parameters/query.yaml
     get:
       description: Return report data
       operationId: getReportData

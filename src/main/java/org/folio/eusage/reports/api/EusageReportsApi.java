@@ -307,8 +307,20 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   Future<Void> getTitleData(Vertx vertx, RoutingContext ctx) {
     RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
     String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+
+    PgCqlQuery pgCqlQuery = PgCqlQuery.query();
+    pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
+    pgCqlQuery.addField(new PgCqlField("id", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("counterReportId", PgCqlField.Type.UUID));
+
     TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
     String from = titleDataTable(pool);
+    pgCqlQuery.parse(stringOrNull(params.queryParameter("query")));
+    String cqlWhere = pgCqlQuery.getWhereClause();
+    if (cqlWhere != null) {
+      from = from + " WHERE " + cqlWhere;
+    }
+
     return streamResult(ctx, pool, null, from, "data",
         row -> {
           JsonObject obj = new JsonObject()
@@ -836,8 +848,23 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   Future<Void> getReportData(Vertx vertx, RoutingContext ctx) {
     RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
     String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+
+    PgCqlQuery pgCqlQuery = PgCqlQuery.query();
+    pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
+    pgCqlQuery.addField(new PgCqlField("id", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("kbTitleId", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("kbPackageId", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("agreementLineId", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("agreementId", PgCqlField.Type.UUID));
+
     TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
     String from = agreementEntriesTable(pool);
+    pgCqlQuery.parse(stringOrNull(params.queryParameter("query")));
+    String cqlWhere = pgCqlQuery.getWhereClause();
+    if (cqlWhere != null) {
+      from = from + " WHERE " + cqlWhere;
+    }
+
     return streamResult(ctx, pool, null, from, "data", row ->
         new JsonObject()
             .put("id", row.getUUID("id"))
