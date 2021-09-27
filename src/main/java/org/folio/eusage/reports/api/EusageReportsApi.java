@@ -405,8 +405,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           for (int i = 0; i < ar.size(); i++) {
             JsonObject pti = ar.getJsonObject(i).getJsonObject("pti");
             JsonObject titleInstance = pti.getJsonObject("titleInstance");
-            log.info("AD: id {} name = {}", titleInstance.getString("id"),
-                titleInstance.getString("name"));
             UUID kbTitleId = UUID.fromString(titleInstance.getString("id"));
             list.add(kbTitleId);
           }
@@ -1135,31 +1133,30 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           ? UUID.fromString(resourceObject.getString("id")) : null;
       String kbPackageName = titleInstance == null
           ? resourceObject.getString("name") : null;
-      return parsePoLines(poLines, ctx)
-          .compose(poResult -> createTitleFromAgreement(pool, con, kbTitleId, ctx)
-              .compose(x -> createPackageFromAgreement(pool, con, kbPackageId, kbPackageName, ctx))
-              .compose(x -> {
-                UUID id = UUID.randomUUID();
-                String orderType = poResult.getString("orderType");
-                String invoiceNumber = poResult.getString("invoiceNumber");
-                Number encumberedCost = poResult.getDouble("encumberedCost");
-                Number invoicedCost = poResult.getDouble("invoicedCost");
-                String subScriptionDateRange = poResult.getString("subscriptionDateRange");
-                String fiscalYearRange = poResult.getString("fiscalYear");
-                String poLineNumber = poResult.getString("poLineNumber");
-                return con.preparedQuery("INSERT INTO " + agreementEntriesTable(pool)
-                        + "(id, kbTitleId, kbPackageId, type,"
-                        + " agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,"
-                        + " fiscalYearRange, subscriptionDateRange, coverageDateRanges, orderType,"
-                        + " invoiceNumber,poLineNumber) VALUES"
-                        + " ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)")
-                    .execute(Tuple.of(id, kbTitleId, kbPackageId, type,
-                        agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,
-                        fiscalYearRange, subScriptionDateRange, coverageDateRanges, orderType,
-                        invoiceNumber, poLineNumber))
-                    .mapEmpty();
-              })
-          );
+      return createTitleFromAgreement(pool, con, kbTitleId, ctx)
+          .compose(x -> createPackageFromAgreement(pool, con, kbPackageId, kbPackageName, ctx))
+          .compose(x -> parsePoLines(poLines, ctx))
+          .compose(poResult -> {
+            UUID id = UUID.randomUUID();
+            String orderType = poResult.getString("orderType");
+            String invoiceNumber = poResult.getString("invoiceNumber");
+            Number encumberedCost = poResult.getDouble("encumberedCost");
+            Number invoicedCost = poResult.getDouble("invoicedCost");
+            String subScriptionDateRange = poResult.getString("subscriptionDateRange");
+            String fiscalYearRange = poResult.getString("fiscalYear");
+            String poLineNumber = poResult.getString("poLineNumber");
+            return con.preparedQuery("INSERT INTO " + agreementEntriesTable(pool)
+                    + "(id, kbTitleId, kbPackageId, type,"
+                    + " agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,"
+                    + " fiscalYearRange, subscriptionDateRange, coverageDateRanges, orderType,"
+                    + " invoiceNumber,poLineNumber) VALUES"
+                    + " ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)")
+                .execute(Tuple.of(id, kbTitleId, kbPackageId, type,
+                    agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,
+                    fiscalYearRange, subScriptionDateRange, coverageDateRanges, orderType,
+                    invoiceNumber, poLineNumber))
+                .mapEmpty();
+          });
     } catch (Exception e) {
       log.error("Failed to decode agreementLine: {}", e.getMessage(), e);
       return Future.failedFuture("Failed to decode agreement line: " + e.getMessage());
