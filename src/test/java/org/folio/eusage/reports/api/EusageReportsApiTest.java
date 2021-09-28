@@ -1370,7 +1370,7 @@ assertThat(json.getJsonArray("items").size(), is(4));
           System.out.println(res);
           StringReader reader = new StringReader(res);
           try {
-            CSVParser parser = new CSVParser(reader, EusageReportsApi.CSV_FORMAT);
+            CSVParser parser = new CSVParser(reader, CsvReports.CSV_FORMAT);
             List<CSVRecord> records = parser.getRecords();
             CSVRecord header = records.get(0);
             CSVRecord totals = records.get(1);
@@ -1426,7 +1426,7 @@ assertThat(json.getJsonArray("items").size(), is(4));
           String res = body.getValue();
           StringReader reader = new StringReader(res);
           try {
-            CSVParser parser = new CSVParser(reader, EusageReportsApi.CSV_FORMAT);
+            CSVParser parser = new CSVParser(reader, CsvReports.CSV_FORMAT);
             List<CSVRecord> records = parser.getRecords();
             CSVRecord header = records.get(0);
             CSVRecord totals = records.get(1);
@@ -1461,7 +1461,7 @@ assertThat(json.getJsonArray("items").size(), is(4));
           String res = body.getValue();
           StringReader reader = new StringReader(res);
           try {
-            CSVParser parser = new CSVParser(reader, EusageReportsApi.CSV_FORMAT);
+            CSVParser parser = new CSVParser(reader, CsvReports.CSV_FORMAT);
             List<CSVRecord> records = parser.getRecords();
             CSVRecord header = records.get(0);
             CSVRecord totals = records.get(1);
