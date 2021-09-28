@@ -113,6 +113,7 @@ paths:
       - $ref: headers/okapi-url.yaml
       - $ref: parameters/offset.yaml
       - $ref: parameters/limit.yaml
+      - $ref: parameters/query.yaml
     get:
       description: Get counter report title data.
       operationId: getTitleData
@@ -134,6 +135,7 @@ paths:
       - $ref: headers/okapi-url.yaml
       - $ref: parameters/offset.yaml
       - $ref: parameters/limit.yaml
+      - $ref: parameters/query.yaml
     get:
       description: This returns data for parsed agreements.
       operationId: getReportData

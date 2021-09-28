@@ -72,4 +72,15 @@ public class DateRangeTest {
     Assert.assertFalse(d.includes(LocalDate.of(2020, 2, 1)));
     Assert.assertFalse(d.includes(LocalDate.of(2021, 2, 1)));
   }
+
+  @Test
+  public void testCommonMonths() {
+    DateRange d = new DateRange(LocalDate.of(2020,1,1), LocalDate.of(2021,7,1));
+    Assert.assertEquals(18, d.getMonths());
+    Assert.assertEquals(1L, DateRange.commonMonths(d, new DateRange("[2020-02-01,2020-03-01)")));
+    Assert.assertEquals(6L, d.commonMonths(new DateRange("[2021-01-01,2022-01-01)")));
+    Assert.assertEquals(12L, d.commonMonths(new DateRange("[2020-01-01,2021-01-01)")));
+    Assert.assertEquals(0L, d.commonMonths(new DateRange("[2019-01-01,2020-01-01)")));
+    Assert.assertEquals(0L, d.commonMonths(new DateRange("[2021-07-01,2021-08-01)")));
+  }
 }

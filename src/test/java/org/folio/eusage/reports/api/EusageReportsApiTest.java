@@ -254,7 +254,7 @@ public class EusageReportsApiTest {
         ))
         .compose(x -> insertAgreement(a4, null, p11))
         .compose(x -> updateAgreement(a4, "orderType = 'Ongoing', poLineNumber = 'p3', invoiceNumber = 'i3',"
-            + " subscriptionDateRange = '[2020-05-01, 2021-01-01]', fiscalYearRange='[2020-01-01,2021-01-01)',"
+            + " subscriptionDateRange = '[2020-05-01, 2021-01-01]',"
             + " coverageDateRanges='[1998-01-01,2021-01-01]',"
             + " encumberedCost = 300, invoicedCost = 310"
         ))
@@ -1168,10 +1168,14 @@ assertThat(json.getJsonArray("items").size(), is(4));
               contains("2020-04", "2020-05", "2020-06", "2020-07", "2020-08"));
           assertThat((List<?>) json.getJsonArray("titleCountByPeriod").getList(),
               contains(0, 2, 2, 0, 0));
+          assertThat((List<?>) json.getJsonArray("totalItemRequestsByPeriod").getList(),
+              contains(0, 80, 4, 0, 0));
+          assertThat((List<?>) json.getJsonArray("uniqueItemRequestsByPeriod").getList(),
+              contains(0, 40, 2, 0, 0));
           assertThat((List<?>) json.getJsonArray("totalItemCostsPerRequestsByPeriod").getList(),
-              contains(null, 0.22, 4.38, null, null));
-          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
               contains(null, 0.44, 8.75, null, null));
+          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
+              contains(null, 0.88, 17.5, null, null));
         }));
   }
 
@@ -1192,10 +1196,14 @@ assertThat(json.getJsonArray("items").size(), is(4));
               contains("2020-04", "2020-05", "2020-06", "2020-07", "2020-08"));
           assertThat((List<?>) json.getJsonArray("titleCountByPeriod").getList(),
               contains(0, 2, 0, 0, 0));
+          assertThat((List<?>) json.getJsonArray("totalItemRequestsByPeriod").getList(),
+              contains(0, 80, 0, 0, 0));
+          assertThat((List<?>) json.getJsonArray("uniqueItemRequestsByPeriod").getList(),
+              contains(0, 40, 0, 0, 0));
           assertThat((List<?>) json.getJsonArray("totalItemCostsPerRequestsByPeriod").getList(),
-              contains(null, 0.22, null, null, null));
-          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
               contains(null, 0.44, null, null, null));
+          assertThat((List<?>) json.getJsonArray("uniqueItemCostsPerRequestsByPeriod").getList(),
+              contains(null, 0.88, null, null, null));
         }));
   }
 
@@ -1381,17 +1389,17 @@ assertThat(json.getJsonArray("items").size(), is(4));
             context.assertEquals("i2", records.get(2).get(7));
             context.assertEquals("i2", records.get(3).get(7));
             context.assertEquals("Cost per request - total", header.get(16));
-            context.assertEquals("0.62", totals.get(16));
-            context.assertEquals("8.75", records.get(2).get(16));
-            context.assertEquals("0.44", records.get(3).get(16));
-            context.assertEquals("0.44", records.get(4).get(16));
-            context.assertEquals("8.75", records.get(5).get(16));
+            context.assertEquals("1.25", totals.get(16));
+            context.assertEquals("0.88", records.get(2).get(16));
+            context.assertEquals("17.5", records.get(3).get(16));
+            context.assertEquals("0.88", records.get(4).get(16));
+            context.assertEquals("17.5", records.get(5).get(16));
             context.assertEquals("Cost per request - unique", header.get(17));
-            context.assertEquals("1.25", totals.get(17));
-            context.assertEquals("17.5", records.get(2).get(17));
-            context.assertEquals("0.88", records.get(3).get(17));
-            context.assertEquals("0.88", records.get(4).get(17));
-            context.assertEquals("17.5", records.get(5).get(17));
+            context.assertEquals("2.5", totals.get(17));
+            context.assertEquals("1.75", records.get(2).get(17));
+            context.assertEquals("35.0", records.get(3).get(17));
+            context.assertEquals("1.75", records.get(4).get(17));
+            context.assertEquals("35.0", records.get(5).get(17));
           } catch (IOException e) {
             context.fail(e);
           }

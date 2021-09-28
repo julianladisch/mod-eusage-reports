@@ -375,8 +375,20 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   Future<Void> getTitleData(Vertx vertx, RoutingContext ctx) {
     RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
     String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+
+    PgCqlQuery pgCqlQuery = PgCqlQuery.query();
+    pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
+    pgCqlQuery.addField(new PgCqlField("id", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("counterReportId", PgCqlField.Type.UUID));
+
     TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
     String from = titleDataTable(pool);
+    pgCqlQuery.parse(stringOrNull(params.queryParameter("query")));
+    String cqlWhere = pgCqlQuery.getWhereClause();
+    if (cqlWhere != null) {
+      from = from + " WHERE " + cqlWhere;
+    }
+
     return streamResult(ctx, pool, null, from, "data",
         row -> {
           JsonObject obj = new JsonObject()
@@ -461,8 +473,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           for (int i = 0; i < ar.size(); i++) {
             JsonObject pti = ar.getJsonObject(i).getJsonObject("pti");
             JsonObject titleInstance = pti.getJsonObject("titleInstance");
-            log.info("AD: id {} name = {}", titleInstance.getString("id"),
-                titleInstance.getString("name"));
             UUID kbTitleId = UUID.fromString(titleInstance.getString("id"));
             list.add(kbTitleId);
           }
@@ -904,8 +914,23 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   Future<Void> getReportData(Vertx vertx, RoutingContext ctx) {
     RequestParameters params = ctx.get(ValidationHandler.REQUEST_CONTEXT_KEY);
     String tenant = stringOrNull(params.headerParameter(XOkapiHeaders.TENANT));
+
+    PgCqlQuery pgCqlQuery = PgCqlQuery.query();
+    pgCqlQuery.addField(new PgCqlField("cql.allRecords", PgCqlField.Type.ALWAYS_MATCHES));
+    pgCqlQuery.addField(new PgCqlField("id", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("kbTitleId", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("kbPackageId", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("agreementLineId", PgCqlField.Type.UUID));
+    pgCqlQuery.addField(new PgCqlField("agreementId", PgCqlField.Type.UUID));
+
     TenantPgPool pool = TenantPgPool.pool(vertx, tenant);
     String from = agreementEntriesTable(pool);
+    pgCqlQuery.parse(stringOrNull(params.queryParameter("query")));
+    String cqlWhere = pgCqlQuery.getWhereClause();
+    if (cqlWhere != null) {
+      from = from + " WHERE " + cqlWhere;
+    }
+
     return streamResult(ctx, pool, null, from, "data", row ->
         new JsonObject()
             .put("id", row.getUUID("id"))
@@ -1097,6 +1122,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       }));
       futures.add(lookupInvoiceLines(poLineId, ctx).compose(invoiceResponse -> {
         JsonArray invoices = invoiceResponse.getJsonArray("invoiceLines");
+        log.info("AD: invoices {}", invoices.size());
         for (int j = 0; j < invoices.size(); j++) {
           JsonObject invoiceLine = invoices.getJsonObject(j);
           String invoiceNumber = invoiceLine.getString("invoiceLineNumber");
@@ -1176,31 +1202,30 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
           ? UUID.fromString(resourceObject.getString("id")) : null;
       String kbPackageName = titleInstance == null
           ? resourceObject.getString("name") : null;
-      return parsePoLines(poLines, ctx)
-          .compose(poResult -> createTitleFromAgreement(pool, con, kbTitleId, ctx)
-              .compose(x -> createPackageFromAgreement(pool, con, kbPackageId, kbPackageName, ctx))
-              .compose(x -> {
-                UUID id = UUID.randomUUID();
-                String orderType = poResult.getString("orderType");
-                String invoiceNumber = poResult.getString("invoiceNumber");
-                Number encumberedCost = poResult.getDouble("encumberedCost");
-                Number invoicedCost = poResult.getDouble("invoicedCost");
-                String subScriptionDateRange = poResult.getString("subscriptionDateRange");
-                String fiscalYearRange = poResult.getString("fiscalYear");
-                String poLineNumber = poResult.getString("poLineNumber");
-                return con.preparedQuery("INSERT INTO " + agreementEntriesTable(pool)
-                        + "(id, kbTitleId, kbPackageId, type,"
-                        + " agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,"
-                        + " fiscalYearRange, subscriptionDateRange, coverageDateRanges, orderType,"
-                        + " invoiceNumber,poLineNumber) VALUES"
-                        + " ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)")
-                    .execute(Tuple.of(id, kbTitleId, kbPackageId, type,
-                        agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,
-                        fiscalYearRange, subScriptionDateRange, coverageDateRanges, orderType,
-                        invoiceNumber, poLineNumber))
-                    .mapEmpty();
-              })
-          );
+      return createTitleFromAgreement(pool, con, kbTitleId, ctx)
+          .compose(x -> createPackageFromAgreement(pool, con, kbPackageId, kbPackageName, ctx))
+          .compose(x -> parsePoLines(poLines, ctx))
+          .compose(poResult -> {
+            UUID id = UUID.randomUUID();
+            String orderType = poResult.getString("orderType");
+            String invoiceNumber = poResult.getString("invoiceNumber");
+            Number encumberedCost = poResult.getDouble("encumberedCost");
+            Number invoicedCost = poResult.getDouble("invoicedCost");
+            String subScriptionDateRange = poResult.getString("subscriptionDateRange");
+            String fiscalYearRange = poResult.getString("fiscalYear");
+            String poLineNumber = poResult.getString("poLineNumber");
+            return con.preparedQuery("INSERT INTO " + agreementEntriesTable(pool)
+                    + "(id, kbTitleId, kbPackageId, type,"
+                    + " agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,"
+                    + " fiscalYearRange, subscriptionDateRange, coverageDateRanges, orderType,"
+                    + " invoiceNumber,poLineNumber) VALUES"
+                    + " ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)")
+                .execute(Tuple.of(id, kbTitleId, kbPackageId, type,
+                    agreementId, agreementLineId, poLineId, encumberedCost, invoicedCost,
+                    fiscalYearRange, subScriptionDateRange, coverageDateRanges, orderType,
+                    invoiceNumber, poLineNumber))
+                .mapEmpty();
+          });
     } catch (Exception e) {
       log.error("Failed to decode agreementLine: {}", e.getMessage(), e);
       return Future.failedFuture("Failed to decode agreement line: " + e.getMessage());
@@ -1420,9 +1445,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       String agreementId, String accessCountPeriod, String start, String end) {
 
     Periods periods = new Periods(start, end, accessCountPeriod);
-    Tuple tuple = Tuple.of(agreementId);
-    periods.addStartDates(tuple);
-    periods.addEnd(tuple);
     return getTitles(pool, isJournal, includeOA, agreementId, periods,
         "title, publicationDate, openAccess")
         .map(rowSet -> UseOverTime.titlesToJsonObject(rowSet, agreementId, periods));
@@ -1578,7 +1600,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   static Future<RowSet<Row>> getTitlesCost(TenantPgPool pool, Boolean isJournal, boolean includeOA,
       String agreementId, Periods usePeriods) {
 
-    String sql = "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
+    String sql = "SELECT DISTINCT ON (title, publicationDate, openAccess, usageDateRange)"
+        + " title_entries.kbTitleId AS kbId, kbTitleName AS title,"
         + " kbPackageId, kbPackageName, printISSN, onlineISSN, ISBN, "
         + " publicationDate, usageDateRange, uniqueAccessCount, totalAccessCount, openAccess, "
         + " orderType, poLineNumber, invoiceNumber,"
@@ -1595,7 +1618,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         + "   AND daterange($2, $3) @> lower(usageDateRange)"
         +  (includeOA ? "" : " AND NOT openAccess");
 
-    return pool.preparedQuery(sql + " ORDER BY title, publicationDate")
+    return pool.preparedQuery(sql + " ORDER BY title, publicationDate, openAccess, usageDateRange")
         .execute(Tuple.of(agreementId, usePeriods.startDate, usePeriods.endDate));
   }
 
@@ -1603,10 +1626,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       String agreementId, String accessCountPeriod, String start, String end) {
 
     Periods periods = new Periods(start, end, accessCountPeriod);
-    Tuple tuple = Tuple.of(agreementId);
-    periods.addStartDates(tuple);
-    periods.addEnd(tuple);
-
     return getTitlesCost(pool, isJournal, includeOA, agreementId, periods)
         .map(rowSet -> CostPerUse.titlesToJsonObject(rowSet, periods));
   }

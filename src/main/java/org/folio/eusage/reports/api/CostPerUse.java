@@ -48,6 +48,7 @@ public class CostPerUse {
     Map<UUID,Double> amountEncumberedTotalMap = new HashMap<>();
     Map<UUID,Double> amountPaidTotalMap = new HashMap<>();
     rowSet.forEach(row -> {
+      log.info("costPerUse row: {}", () -> row.deepToString());
       UUID kbId = row.getUUID("kbid");
       UUID kbPackageId = row.getUUID("kbpackageid");
       String usageDateRange = row.getString("usagedaterange");
@@ -100,31 +101,36 @@ public class CostPerUse {
         item.put("totalItemRequests", 0L);
         item.put("uniqueItemRequests", 0L);
       }
+      // deal with fiscal year range first, and save the that date range
       String fiscalYearRange = row.getString("fiscalyearrange");
-      int subscriptionMonths = 0;
+      DateRange subscriptionPeriod = null;
       if (fiscalYearRange != null) {
-        DateRange dateRange = new DateRange(fiscalYearRange);
-        item.put("fiscalDateStart", dateRange.getStart());
-        item.put("fiscalDateEnd", dateRange.getEnd());
-        subscriptionMonths = dateRange.getMonths();
+        subscriptionPeriod = new DateRange(fiscalYearRange);
+        item.put("fiscalDateStart", subscriptionPeriod.getStart());
+        item.put("fiscalDateEnd", subscriptionPeriod.getEnd());
       }
+      // consider subscription date range, Overrides subscription period if present
       String subscriptionDateRange = row.getString("subscriptiondaterange");
       if (subscriptionDateRange != null) {
-        DateRange dateRange = new DateRange(subscriptionDateRange);
-        item.put("subscriptionDateStart", dateRange.getStart());
-        item.put("subscriptionDateEnd", dateRange.getEnd());
-        if (!dateRange.includes(usageStart)) {
-          return;
-        }
-        subscriptionMonths = dateRange.getMonths();
+        subscriptionPeriod = new DateRange(subscriptionDateRange);
+        item.put("subscriptionDateStart", subscriptionPeriod.getStart());
+        item.put("subscriptionDateEnd", subscriptionPeriod.getEnd());
       }
-      int monthsInOnePeriod = usePeriods.getMonths();
-      if (monthsInOnePeriod > subscriptionMonths) {
-        subscriptionMonths = monthsInOnePeriod; // never more than full amount
+      if (subscriptionPeriod == null) {
+        // neither fiscal, nor subscription dates (shouldn't happen)
+        return;
       }
-      int monthsAllPeriods = monthsInOnePeriod * usePeriods.size();
-      if (monthsAllPeriods > subscriptionMonths) {
-        monthsAllPeriods = subscriptionMonths;
+      // number of months in this period
+      long thisPeriodMonths = subscriptionPeriod.commonMonths(
+          new DateRange(usageStart, usageStart.plusMonths(usePeriods.getMonths())));
+      // number of months period in start - end also in subscribed period
+      long allPeriodsMonths = subscriptionPeriod.commonMonths(
+          new DateRange(usePeriods.startDate, usePeriods.endDate));
+      // number of months for subscription
+      int subscriptionMonths = subscriptionPeriod.getMonths();
+      log.debug("This {} all {} sub {}", thisPeriodMonths, allPeriodsMonths, subscriptionMonths);
+      if (thisPeriodMonths == 0) {
+        return;
       }
       long totalItemRequestsByPeriod = row.getLong("totalaccesscount");
       totalRequests.set(idx, totalRequests.getLong(idx) + totalItemRequestsByPeriod);
@@ -139,15 +145,15 @@ public class CostPerUse {
       int titlesDivide = kbPackageId == null ? 1 : packageContent.get(kbPackageId).size();
       Number encumberedCost = row.getDouble("encumberedcost");
       if (encumberedCost != null) {
-        Double amount = monthsAllPeriods * encumberedCost.doubleValue() / subscriptionMonths;
+        Double amount = allPeriodsMonths * encumberedCost.doubleValue() / subscriptionMonths;
         item.put("amountEncumbered", formatCost(amount / titlesDivide));
         amountEncumberedTotalMap.putIfAbsent(paidId, amount);
       }
       Number amountPaid = row.getNumeric("invoicedcost");
       if (amountPaid != null) {
-        Double amount = monthsAllPeriods * amountPaid.doubleValue() / subscriptionMonths;
+        Double amount = allPeriodsMonths * amountPaid.doubleValue() / subscriptionMonths;
         item.put("amountPaid", formatCost(amount / titlesDivide));
-        paidByPeriodMap.get(idx).putIfAbsent(paidId, monthsInOnePeriod * amountPaid.doubleValue()
+        paidByPeriodMap.get(idx).putIfAbsent(paidId, thisPeriodMonths * amountPaid.doubleValue()
             / subscriptionMonths);
         amountPaidTotalMap.putIfAbsent(paidId, amount);
         Long totalItemRequests = item.getLong("totalItemRequests");
@@ -222,7 +228,7 @@ public class CostPerUse {
     json.put("uniqueItemCostsPerRequestsByPeriod", uniqueItemCostsPerRequestsByPeriod);
     json.put("titleCountByPeriod", titleCountByPeriod);
     json.put("items", items);
-    log.info("AD: new JSON {}", json.encodePrettily());
+    log.info("costPerUse: JSON {}", () -> json.encodePrettily());
     return json;
   }
 

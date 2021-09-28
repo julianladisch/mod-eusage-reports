@@ -1285,6 +1285,7 @@ public class MainVerticleTest {
     }
     context.assertEquals(30, noWithPubDate);
 
+
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
@@ -1326,6 +1327,17 @@ public class MainVerticleTest {
         .extract();
     resObject = new JsonObject(response.body().asString());
     context.assertEquals(9, resObject.getJsonArray("titles").size());
+
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/title-data?limit=100&query=counterReportId==" + goodCounterReportId)
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"))
+        .extract();
+    resObject = new JsonObject(response.body().asString());
+    items = resObject.getJsonArray("data");
+    context.assertEquals(4, items.size());
 
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
@@ -1579,6 +1591,16 @@ public class MainVerticleTest {
       }
     }
     context.assertEquals(1, noPackages);
+
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-data?query=agreementLineId==" + agreementLineIds[0])
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"))
+        .extract();
+    resObject = new JsonObject(response.body().asString());
+    context.assertEquals(1, resObject.getJsonArray("data").size());
 
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
