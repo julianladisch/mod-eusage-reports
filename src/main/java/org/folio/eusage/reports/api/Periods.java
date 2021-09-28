@@ -136,26 +136,6 @@ public class Periods {
     return accessCountPeriods.size();
   }
 
-  /**
-   * Add all dates to Tuple in period - except end date.
-   * @param tuple where dates are added.
-   */
-  public void addStartDates(Tuple tuple) {
-    LocalDate date = startDate;
-    do {
-      tuple.addLocalDate(date);
-      date = date.plus(period);
-    } while (date.isBefore(endDate));
-  }
-
-  /**
-   * Add end date to Tuple in period.
-   * @param tuple where end date is added.
-   */
-  public void addEnd(Tuple tuple) {
-    tuple.addLocalDate(endDate);
-  }
-
   JsonArray getAccessCountPeriods() {
     return accessCountPeriods;
   }

@@ -4,9 +4,8 @@ import java.time.LocalDate;
 import java.time.Period;
 
 public class DateRange {
-
-  private final LocalDate start;
-  private final LocalDate end;
+  private final LocalDate start; // inclusive
+  private final LocalDate end;   // inclusive
 
   /**
    * Construct DateRange from string as returned from Postgres's daterange.
@@ -35,6 +34,16 @@ public class DateRange {
     start = LocalDate.parse(s.substring(1, idx));
   }
 
+  /**
+   * Construct with LocalDate.
+   * @param start inclusive start date
+   * @param end exclusive end date
+   */
+  public DateRange(LocalDate start, LocalDate end) {
+    this.start = start;
+    this.end = end.minusDays(1);
+  }
+
   String getStart() {
     return start.toString();
   }
@@ -50,5 +59,15 @@ public class DateRange {
 
   boolean includes(LocalDate d) {
     return !start.isAfter(d) && end.isAfter(d);
+  }
+
+  static long commonMonths(DateRange a, DateRange b) {
+    LocalDate commonStart = a.start.isAfter(b.start) ? a.start : b.start;
+    LocalDate commonEnd = a.end.isAfter(b.end) ? b.end : a.end;
+    return Period.between(commonStart, commonEnd.plusDays(1)).toTotalMonths();
+  }
+
+  long commonMonths(DateRange a) {
+    return DateRange.commonMonths(this, a);
   }
 }

@@ -1054,6 +1054,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       }));
       futures.add(lookupInvoiceLines(poLineId, ctx).compose(invoiceResponse -> {
         JsonArray invoices = invoiceResponse.getJsonArray("invoiceLines");
+        log.info("AD: invoices {}", invoices.size());
         for (int j = 0; j < invoices.size(); j++) {
           JsonObject invoiceLine = invoices.getJsonObject(j);
           String invoiceNumber = invoiceLine.getString("invoiceLineNumber");
@@ -1376,9 +1377,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       String agreementId, String accessCountPeriod, String start, String end) {
 
     Periods periods = new Periods(start, end, accessCountPeriod);
-    Tuple tuple = Tuple.of(agreementId);
-    periods.addStartDates(tuple);
-    periods.addEnd(tuple);
     return getTitles(pool, isJournal, includeOA, agreementId, periods,
         "title, publicationDate, openAccess")
         .map(rowSet -> UseOverTime.titlesToJsonObject(rowSet, agreementId, periods));
@@ -1534,7 +1532,8 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   static Future<RowSet<Row>> getTitlesCost(TenantPgPool pool, Boolean isJournal, boolean includeOA,
       String agreementId, Periods usePeriods) {
 
-    String sql = "SELECT title_entries.kbTitleId AS kbId, kbTitleName AS title,"
+    String sql = "SELECT DISTINCT ON (title, publicationDate, openAccess, usageDateRange)"
+        + " title_entries.kbTitleId AS kbId, kbTitleName AS title,"
         + " kbPackageId, kbPackageName, printISSN, onlineISSN, ISBN, "
         + " publicationDate, usageDateRange, uniqueAccessCount, totalAccessCount, openAccess, "
         + " orderType, poLineNumber, invoiceNumber,"
@@ -1551,7 +1550,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
         + "   AND daterange($2, $3) @> lower(usageDateRange)"
         +  (includeOA ? "" : " AND NOT openAccess");
 
-    return pool.preparedQuery(sql + " ORDER BY title, publicationDate")
+    return pool.preparedQuery(sql + " ORDER BY title, publicationDate, openAccess, usageDateRange")
         .execute(Tuple.of(agreementId, usePeriods.startDate, usePeriods.endDate));
   }
 
@@ -1559,10 +1558,6 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
       String agreementId, String accessCountPeriod, String start, String end) {
 
     Periods periods = new Periods(start, end, accessCountPeriod);
-    Tuple tuple = Tuple.of(agreementId);
-    periods.addStartDates(tuple);
-    periods.addEnd(tuple);
-
     return getTitlesCost(pool, isJournal, includeOA, agreementId, periods)
         .map(rowSet -> CostPerUse.titlesToJsonObject(rowSet, periods));
   }
