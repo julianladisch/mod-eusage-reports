@@ -254,7 +254,7 @@ public class EusageReportsApiTest {
         ))
         .compose(x -> insertAgreement(a4, null, p11))
         .compose(x -> updateAgreement(a4, "orderType = 'Ongoing', poLineNumber = 'p3', invoiceNumber = 'i3',"
-            + " subscriptionDateRange = '[2020-05-01, 2021-01-01]', fiscalYearRange='[2020-01-01,2021-01-01)',"
+            + " subscriptionDateRange = '[2020-05-01, 2021-01-01]',"
             + " coverageDateRanges='[1998-01-01,2021-01-01]',"
             + " encumberedCost = 300, invoicedCost = 310"
         ))
