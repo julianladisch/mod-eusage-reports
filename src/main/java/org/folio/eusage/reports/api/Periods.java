@@ -1,7 +1,6 @@
 package org.folio.eusage.reports.api;
 
 import io.vertx.core.json.JsonArray;
-import io.vertx.sqlclient.Tuple;
 import java.time.LocalDate;
 import java.time.Period;
 
