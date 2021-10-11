@@ -228,7 +228,7 @@ public class EusageReportsApiTest {
    private static Future<Void> loadSampleData() {
     return insertAgreement(a1, t11, null)
         .compose(x -> insertAgreement(a1, t12, null))
-        .compose(x -> updateAgreement(a1, "orderType = 'Ongoing', poLineNumber = 'p1', invoiceNumber = 'i1',"
+        .compose(x -> updateAgreement(a1, "orderType = 'Ongoing', poLineNumber = '[\"p1\"]', invoiceNumber = '[\"i1\"]',"
             + " fiscalYearRange='[2020-01-01,2021-01-01)',"
             + " coverageDateRanges='[1998-01-01,2020-01-01]',"
             + " encumberedCost = 100, invoicedCost = 110"
