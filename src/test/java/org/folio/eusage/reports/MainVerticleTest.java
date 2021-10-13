@@ -950,6 +950,19 @@ public class MainVerticleTest {
         .then().statusCode(204);
   }
 
+  void analyzeTitles(TestContext context, String tenant,
+      int expectTotal, int expectNumber, int expectUndef, int expectManual, int expectIgnored) {
+    ExtractableResponse<Response> response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-titles?facets=status&query=cql.allRecords=1")
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"))
+        .extract();
+    JsonObject resObject = new JsonObject(response.body().asString());
+    analyzeTitles(context, resObject, expectTotal, expectNumber, expectUndef, expectManual, expectIgnored);
+  }
+
   void analyzeTitles(TestContext context, JsonObject resObject,
                      int expectTotal, int expectNumber, int expectUndef, int expectManual, int expectIgnored) {
     JsonObject resultInfo = resObject.getJsonObject("resultInfo");
@@ -996,7 +1009,9 @@ public class MainVerticleTest {
     context.assertEquals(3, facetValues.size());
     context.assertEquals("matched", facetValues.getJsonObject(0).getString("value"));
     context.assertEquals(noManual + noMatched, facetValues.getJsonObject(0).getInteger("count"));
+    context.assertEquals("unmatched", facetValues.getJsonObject(1).getString("value"));
     context.assertEquals(noUndef, facetValues.getJsonObject(1).getInteger("count"));
+    context.assertEquals("ignored", facetValues.getJsonObject(2).getString("value"));
     context.assertEquals(noIgnored, facetValues.getJsonObject(2).getInteger("count"));
   }
 
@@ -1069,6 +1084,14 @@ public class MainVerticleTest {
 
     ExtractableResponse<Response> response;
 
+    RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-titles?facets=foo")
+        .then().statusCode(400)
+        .header("Content-Type", is("text/plain"))
+        .body(is("Unsupported facet: foo"));
+
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
@@ -1077,7 +1100,11 @@ public class MainVerticleTest {
         .header("Content-Type", is("application/json"))
         .extract();
     JsonObject resObject = new JsonObject(response.body().asString());
-    analyzeTitles(context, resObject, 0, 0, 0, 0, 0);
+    JsonObject resultInfo = resObject.getJsonObject("resultInfo");
+    JsonArray facets = resultInfo.getJsonArray("facets");
+    context.assertEquals(0, facets.size());
+
+    analyzeTitles(context, tenant, 0, 0, 0, 0, 0);
 
     tenantOp(context, tenant, new JsonObject()
         .put("module_from", "mod-eusage-reports-1.0.0")
@@ -1094,37 +1121,41 @@ public class MainVerticleTest {
         ), null);
 
     enableGoodKbTitle = false;
-    response = RestAssured.given()
+    RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
         .header("Content-Type", "application/json")
         .body("{}")
         .post("/eusage-reports/report-titles/from-counter")
         .then().statusCode(200)
-        .header("Content-Type", is("application/json"))
-        .extract();
-    resObject = new JsonObject(response.body().asString());
-    analyzeTitles(context, resObject, 8, 8, 3, 0, 0);
+        .header("Content-Type", is("application/json"));
+    analyzeTitles(context, tenant, 8, 8, 3, 0, 0);
 
     enableGoodKbTitle = true;
-    response = RestAssured.given()
+    RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
         .header("Content-Type", "application/json")
         .body("{}")
         .post("/eusage-reports/report-titles/from-counter")
         .then().statusCode(200)
-        .header("Content-Type", is("application/json"))
-        .extract();
-    resObject = new JsonObject(response.body().asString());
-    analyzeTitles(context, resObject, 8, 8, 2, 0, 0);
+        .header("Content-Type", is("application/json"));
 
-    response = RestAssured.given()
+    analyzeTitles(context, tenant, 8, 8, 2, 0, 0);
+
+    RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
         .header("Content-Type", "application/json")
         .body("{}")
         .post("/eusage-reports/report-titles/from-counter")
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"));
+
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .get("/eusage-reports/report-titles?facets=status&query=cql.allRecords=1")
         .then().statusCode(200)
         .header("Content-Type", is("application/json"))
         .extract();
@@ -1152,8 +1183,6 @@ public class MainVerticleTest {
       }
     }
     context.assertEquals(1, noGood);
-
-
     // put without kbTitleId kbTitleName (so title is ignored)
     JsonObject postTitleObject = new JsonObject();
     postTitleObject.put("titles", new JsonArray().add(unmatchedTitle));
@@ -1169,7 +1198,7 @@ public class MainVerticleTest {
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
-        .get("/eusage-reports/report-titles")
+        .get("/eusage-reports/report-titles?facets=status")
         .then().statusCode(200)
         .header("Content-Type", is("application/json"))
         .extract();
@@ -1197,15 +1226,7 @@ public class MainVerticleTest {
         .post("/eusage-reports/report-titles")
         .then().statusCode(204);
 
-    response = RestAssured.given()
-        .header(XOkapiHeaders.TENANT, tenant)
-        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
-        .get("/eusage-reports/report-titles")
-        .then().statusCode(200)
-        .header("Content-Type", is("application/json"))
-        .extract();
-    resObject = new JsonObject(response.body().asString());
-    analyzeTitles(context, resObject, 8, 8, 2, 0, 0);
+    analyzeTitles(context, tenant, 8, 8, 2, 0, 0);
 
     // put with kbTitleId kbTitleName with manual
     unmatchedTitle.put("kbManualMatch", true);
@@ -1219,20 +1240,12 @@ public class MainVerticleTest {
         .post("/eusage-reports/report-titles")
         .then().statusCode(204);
 
-    response = RestAssured.given()
-        .header(XOkapiHeaders.TENANT, tenant)
-        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
-        .get("/eusage-reports/report-titles")
-        .then().statusCode(200)
-        .header("Content-Type", is("application/json"))
-        .extract();
-    resObject = new JsonObject(response.body().asString());
-    analyzeTitles(context, resObject, 8, 8, 1, 1, 0);
+    analyzeTitles(context, tenant, 8, 8, 1, 1, 0);
 
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
-        .get("/eusage-reports/report-titles?query=counterReportTitle=\"cats journal\"")
+        .get("/eusage-reports/report-titles?facets=status&query=counterReportTitle=\"cats journal\"")
         .then().statusCode(200)
         .header("Content-Type", is("application/json"))
         .extract();
@@ -1244,7 +1257,7 @@ public class MainVerticleTest {
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
-        .get("/eusage-reports/report-titles?query=kbManualMatch=true")
+        .get("/eusage-reports/report-titles?facets=status&query=kbManualMatch=true")
         .then().statusCode(200)
         .header("Content-Type", is("application/json"))
         .extract();
@@ -1254,13 +1267,12 @@ public class MainVerticleTest {
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
-        .get("/eusage-reports/report-titles?query=kbManualMatch=false")
+        .get("/eusage-reports/report-titles?facets=status&query=kbManualMatch=false")
         .then().statusCode(200)
         .header("Content-Type", is("application/json"))
         .extract();
     resObject = new JsonObject(response.body().asString());
     analyzeTitles(context, resObject, 7, 7, 1, 0, 0);
-
 
     JsonObject n = new JsonObject();
     n.put("id", UUID.randomUUID());
@@ -1322,8 +1334,7 @@ public class MainVerticleTest {
     }
     context.assertEquals(30, noWithPubDate);
 
-
-    response = RestAssured.given()
+    RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
         .header("Content-Type", "application/json")
@@ -1332,12 +1343,10 @@ public class MainVerticleTest {
             .encode())
         .post("/eusage-reports/report-titles/from-counter")
         .then().statusCode(200)
-        .header("Content-Type", is("application/json"))
-        .extract();
-    resObject = new JsonObject(response.body().asString());
-    context.assertEquals(9, resObject.getJsonArray("titles").size());
+        .header("Content-Type", is("application/json"));
+    analyzeTitles(context, tenant, 9, 9, 1, 1, 0);
 
-    response = RestAssured.given()
+    RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
         .header("Content-Type", "application/json")
@@ -1346,12 +1355,10 @@ public class MainVerticleTest {
             .encode())
         .post("/eusage-reports/report-titles/from-counter")
         .then().statusCode(200)
-        .header("Content-Type", is("application/json"))
-        .extract();
-    resObject = new JsonObject(response.body().asString());
-    context.assertEquals(9, resObject.getJsonArray("titles").size());
+        .header("Content-Type", is("application/json"));
+    analyzeTitles(context, tenant, 9, 9, 1, 1, 0);
 
-    response = RestAssured.given()
+    RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
         .header("Content-Type", "application/json")
@@ -1360,10 +1367,8 @@ public class MainVerticleTest {
             .encode())
         .post("/eusage-reports/report-titles/from-counter")
         .then().statusCode(200)
-        .header("Content-Type", is("application/json"))
-        .extract();
-    resObject = new JsonObject(response.body().asString());
-    context.assertEquals(9, resObject.getJsonArray("titles").size());
+        .header("Content-Type", is("application/json"));
+    analyzeTitles(context, tenant, 9, 9, 1, 1, 0);
 
     response = RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
@@ -1618,17 +1623,26 @@ public class MainVerticleTest {
     resObject = new JsonObject(response.body().asString());
     context.assertEquals(4, resObject.getInteger("reportLinesCreated"));
 
-    response = RestAssured.given()
+    RestAssured.given()
         .header(XOkapiHeaders.TENANT, tenant)
         .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
         .header("Content-Type", "application/json")
         .body(new JsonObject()
             .put("counterReportId", otherCounterReportId)
             .encode())
-        .post("/eusage-reports/report-titles/from-counter?offset=11")
+        .post("/eusage-reports/report-titles/from-counter")
+        .then().statusCode(200)
+        .header("Content-Type", is("application/json"));
+
+    response = RestAssured.given()
+        .header(XOkapiHeaders.TENANT, tenant)
+        .header(XOkapiHeaders.URL, "http://localhost:" + MOCK_PORT)
+        .header("Content-Type", "application/json")
+        .get("/eusage-reports/report-titles?offset=11")
         .then().statusCode(200)
         .header("Content-Type", is("application/json"))
         .extract();
+
     resObject = new JsonObject(response.body().asString());
     context.assertEquals(4, resObject.getJsonArray("titles").size());
     context.assertEquals(15, resObject.getJsonObject("resultInfo").getInteger("totalRecords"));
