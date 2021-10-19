@@ -212,7 +212,7 @@
       "description": "Get eUsage report for requests by date of use"
     },
     {
-      "permissionName":"eusage-reports-report-reqs-by-pub-year.get",
+      "permissionName": "eusage-reports-report-reqs-by-pub-year.get",
       "displayName": "eUsage reports - reqs by pub year",
       "description": "Get eUsage report for requests by publication year"
     },
