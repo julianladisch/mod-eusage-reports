@@ -32,9 +32,6 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <openapi-generator.version>5.1.0</openapi-generator.version>
-    <jackson-databind-nullable.version>0.1.0</jackson-databind-nullable.version>
-    <tenant.yaml.file>${project.basedir}/src/main/resources/openapi/tenant-2.0.yaml</tenant.yaml.file>
   </properties>
 
   <dependencyManagement>
@@ -71,9 +68,9 @@
         <version>4.8.2</version>
       </dependency>
       <dependency>
-        <groupId>org.z3950.zing</groupId>
-        <artifactId>cql-java</artifactId>
-        <version>1.13</version>
+        <groupId>org.folio</groupId>
+        <artifactId>vertx-lib</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
       </dependency>
       <dependency>
         <groupId>org.apache.commons</groupId>
@@ -133,6 +130,10 @@
       <artifactId>okapi-common</artifactId>
     </dependency>
     <dependency>
+      <groupId>org.folio</groupId>
+      <artifactId>vertx-lib</artifactId>
+    </dependency>
+    <dependency>
       <groupId>io.netty</groupId>
       <artifactId>netty-transport-native-epoll</artifactId>
       <classifier>linux-x86_64</classifier>
@@ -141,27 +142,6 @@
       <groupId>io.netty</groupId>
       <artifactId>netty-tcnative-boringssl-static</artifactId>
       <scope>runtime</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.openapitools</groupId>
-      <artifactId>openapi-generator</artifactId>
-      <version>${openapi-generator.version}</version>
-      <exclusions>
-        <exclusion>
-          <groupId>org.slf4j</groupId>
-          <artifactId>slf4j-simple</artifactId>
-        </exclusion>
-      </exclusions>
-    </dependency>
-    <dependency>
-      <groupId>org.openapitools</groupId>
-      <artifactId>openapi-generator-maven-plugin</artifactId>
-      <version>${openapi-generator.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.openapitools</groupId>
-      <artifactId>jackson-databind-nullable</artifactId>
-      <version>${jackson-databind-nullable.version}</version>
     </dependency>
     <dependency>
       <groupId>org.apache.commons</groupId>
