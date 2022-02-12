@@ -1,0 +1,23 @@
+name: 2021-11-23
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-11, macos-10.15, macos-11, macos-10.15, macos-11, macos-10.15, macos-11, macos-10.15]
+        #os: [macos-10.15]
+      fail-fast: false
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: docker-practice/actions-setup-docker@master
+      - uses: actions/checkout@v2
+        with:
+          submodules: true
+      - uses: actions/setup-java@v2
+        with:
+          distribution: 'temurin'
+          java-version: '11'
+          cache: 'maven'
+      - run: mvn -B clean install
