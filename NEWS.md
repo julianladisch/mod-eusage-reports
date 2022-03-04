@@ -1,3 +1,7 @@
+## 1.1.1 2022-04-03
+
+ * [MODEUR-130](https://issues.folio.org/browse/MODEUR-130) Fix tenant id including _ is rejected by upgrading to folio-vertx-lib 1.0.1.
+
 ## 1.1.0 2022-02-17
 
  * [MODEUR-128](https://issues.folio.org/browse/MODEUR-128) Use folio-vertx-lib
