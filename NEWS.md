@@ -1,3 +1,9 @@
+## 1.2.0 2022-07-11
+
+ * [MODEUR-136](https://issues.folio.org/browse/MODEUR-136) Upgrade to folio-vertx-lb 2.0.0, Vert.x 4.3.1
+ * [MODEUR-134](https://issues.folio.org/browse/MODEUR-134) Upgrade finance API versions
+ * [MODEUR-133](https://issues.folio.org/browse/MODEUR-133) Upgrade to log4j 2.17.2
+
 ## 1.1.1 2022-04-03
 
  * [MODEUR-130](https://issues.folio.org/browse/MODEUR-130) Fix tenant id including _ is rejected by upgrading to folio-vertx-lib 1.0.1.
