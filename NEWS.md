@@ -1,3 +1,9 @@
+## 1.2.1 2022-08-11
+
+ * [MODEUR-140](https://issues.folio.org/browse/MODEUR-140) Speed up ERM title lookup
+ * [MODEUR-139](https://issues.folio.org/browse/MODEUR-139) Fix no graphs with GOKb titles
+ * [MODEUR-138](https://issues.folio.org/browse/MODEUR-138) Counter report parse fix
+
 ## 1.2.0 2022-07-11
 
  * [MODEUR-136](https://issues.folio.org/browse/MODEUR-136) Upgrade to folio-vertx-lb 2.0.0, Vert.x 4.3.1
