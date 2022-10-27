@@ -1,3 +1,7 @@
+## 1.2.2 2022-10-27
+
+ * [MODEUR-144](https://issues.folio.org/browse/MODEUR-144) Update deps folio-vertx-lib 2.0.1, Vert.x 4.3.4, Okapi 4.14.5
+
 ## 1.2.1 2022-08-11
 
  * [MODEUR-140](https://issues.folio.org/browse/MODEUR-140) Speed up ERM title lookup
