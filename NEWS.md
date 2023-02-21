@@ -1,3 +1,7 @@
+## 1.3.0 2023-02-21
+ 
+ * [MODEUR-147](https://issues.folio.org/browse/MODEUR-147) Upgrade deps folio-vertx-lib 3.0.0, Vert.x 4.3.7, full-text indexes
+
 ## 1.2.2 2022-10-27
 
  * [MODEUR-144](https://issues.folio.org/browse/MODEUR-144) Update deps folio-vertx-lib 2.0.1, Vert.x 4.3.4, Okapi 4.14.5
