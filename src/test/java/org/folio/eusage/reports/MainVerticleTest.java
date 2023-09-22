@@ -360,20 +360,6 @@ public class MainVerticleTest {
     ctx.response().end(getKbTitle(id).encode());
   }
 
-  static void getErmResourceEntitlement(RoutingContext ctx) {
-    ctx.response().setChunked(true);
-    ctx.response().putHeader("Content-Type", "application/json");
-    String term = ctx.request().getParam("term");
-    JsonArray ar = new JsonArray();
-    if ("org.olf.kb.Pkg".equals(term)) {
-      ar.add(new JsonObject()
-          .put("id", UUID.randomUUID())
-          .put("name", "fake kb package name")
-      );
-    }
-    ctx.response().end(ar.encode());
-  }
-
   static void getAgreement(RoutingContext ctx) {
     String path = ctx.request().path();
     int offset = path.lastIndexOf('/');
@@ -715,7 +701,6 @@ public class MainVerticleTest {
     router.getWithRegex("/counter-reports/[-0-9a-z]*").handler(MainVerticleTest::getCounterReport);
     router.getWithRegex("/erm/titles").handler(MainVerticleTest::getErmTitle);
     router.getWithRegex("/erm/titles/[-0-9a-z]*").handler(MainVerticleTest::getErmTitleId);
-    router.getWithRegex("/erm/resource/[-0-9a-z]*/entitlementOptions").handler(MainVerticleTest::getErmResourceEntitlement);
     router.getWithRegex("/erm/sas/[-0-9a-z]*").handler(MainVerticleTest::getAgreement);
     router.getWithRegex("/erm/entitlements").handler(MainVerticleTest::getEntitlements);
     router.getWithRegex("/orders/order-lines/[-0-9a-z]*").handler(MainVerticleTest::getOrderLines);
