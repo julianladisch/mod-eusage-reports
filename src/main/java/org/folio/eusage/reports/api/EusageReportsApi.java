@@ -492,11 +492,10 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
 
   Future<Tuple> ermTitleLookup(RoutingContext ctx, String identifier, String type) {
     // assuming identifier only has unreserved characters
-    // TODO .. this will match any type of identifier.
     // what if there's more than one hit?
-    String uri = "/erm/resource?"
-        + "match=identifiers.identifier.value&term=" + identifier
-        + "&filters=identifiers.identifier.ns.value%3D" + type;
+    String uri = "/erm/titles?"
+        + "filters=(identifiers.identifier.ns.value%3D%3D" + type
+        + "%26%26identifiers.identifier.value%3D%3D" + identifier + ")";
     return getRequestSend(ctx, uri)
         .map(res -> {
           JsonArray ar = res.bodyAsJsonArray();
@@ -505,7 +504,7 @@ public class EusageReportsApi implements RouterCreator, TenantInitHooks {
   }
 
   Future<Tuple> ermTitleLookup(RoutingContext ctx, UUID id) {
-    String uri = "/erm/resource/" + id;
+    String uri = "/erm/titles/" + id;
     return getRequestSend(ctx, uri)
         .map(res -> parseErmTitle(res.bodyAsJsonObject()));
   }
