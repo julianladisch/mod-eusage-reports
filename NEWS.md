@@ -1,3 +1,9 @@
+## 2.0.0 2023-10-13
+
+* [MODEUR-152](https://issues.folio.org/browse/MODEUR-152) Update dependencies for Poppy
+* [MODEUR-150](https://issues.folio.org/browse/MODEUR-150) Update URL/query used to fetch titles from erm
+* [MODEUR-149](https://issues.folio.org/browse/MODEUR-149) Update to Java 17 mod-eusage-reports
+
 ## 1.3.0 2023-02-21
  
  * [MODEUR-147](https://issues.folio.org/browse/MODEUR-147) Upgrade deps folio-vertx-lib 3.0.0, Vert.x 4.3.7, full-text indexes
