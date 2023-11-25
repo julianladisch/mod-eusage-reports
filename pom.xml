@@ -33,7 +33,7 @@
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <okapi.version>5.0.2</okapi.version>
-    <vertx-lib.version>3.1.0</vertx-lib.version>
+    <vertx-lib.version>3.2.0-SNAPSHOT</vertx-lib.version>
   </properties>
 
   <dependencyManagement>
